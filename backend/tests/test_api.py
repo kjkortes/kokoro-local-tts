@@ -3,7 +3,7 @@ from pathlib import Path
 import numpy as np
 from fastapi.testclient import TestClient
 
-from kokoro_app.app import create_app
+from kokoro_app.app import _safe_load, create_app
 from kokoro_app.engine import EngineStatus
 from kokoro_app.jobs import JobManager
 
@@ -54,3 +54,17 @@ def test_status_describes_local_runtime(tmp_path: Path) -> None:
         "state": "ready", "device": "cpu", "version": "0.1.0", "detail": None
     }
     jobs.shutdown()
+
+
+def test_preload_uses_bundled_phonemizer_when_system_espeak_is_absent(monkeypatch) -> None:
+    class LoadableEngine:
+        loaded = False
+
+        def load(self, language: str) -> None:
+            assert language == "a"
+            self.loaded = True
+
+    engine = LoadableEngine()
+    monkeypatch.setattr("shutil.which", lambda _: None)
+    _safe_load(engine)
+    assert engine.loaded is True

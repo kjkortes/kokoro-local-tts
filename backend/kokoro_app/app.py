@@ -1,6 +1,5 @@
 from __future__ import annotations
 
-import shutil
 import threading
 from contextlib import asynccontextmanager
 from pathlib import Path
@@ -170,8 +169,6 @@ def create_app(
 
 def _safe_load(engine: KokoroEngine) -> None:
     try:
-        if shutil.which("espeak-ng") is None:
-            raise RuntimeError("espeak-ng is missing. Install it with: sudo apt install espeak-ng")
         engine.load("a")
     except Exception:
         # The engine stores a user-facing status; detailed errors remain in local logs on first use.

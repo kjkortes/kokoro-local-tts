@@ -6,11 +6,11 @@ Nothing in a script is sent to a cloud API. The first launch downloads Kokoro's 
 
 ## Start on Ubuntu or Debian
 
-Install the two system audio tools once:
+Install FFmpeg once:
 
 ```bash
 sudo apt-get update
-sudo apt-get install -y espeak-ng ffmpeg
+sudo apt-get install -y ffmpeg
 ```
 
 The machine also needs Python 3.12, [uv](https://docs.astral.sh/uv/), Node.js 20+ and npm. This project already targets the versions installed on the development machine.
@@ -69,7 +69,7 @@ npm run build
 npm run test:e2e
 ```
 
-Run one real model smoke test after `espeak-ng` is installed:
+Run one real model smoke test:
 
 ```bash
 KOKORO_SMOKE=1 uv run --extra test pytest backend/tests/test_inference_smoke.py -v -s
@@ -77,7 +77,7 @@ KOKORO_SMOKE=1 uv run --extra test pytest backend/tests/test_inference_smoke.py 
 
 ## Troubleshooting
 
-- **`espeak-ng` is missing:** run `sudo apt-get install -y espeak-ng`. Kokoro uses it as a phonemizer fallback.
+- **Phonemizer fails to load:** Kokoro installs a bundled `espeak-ng` loader. If your Linux distribution cannot use it, install the system fallback with `sudo apt-get install -y espeak-ng`.
 - **FFmpeg is missing or cannot encode a format:** run `sudo apt-get install -y ffmpeg` and verify `ffmpeg -version`.
 - **The model does not load:** make sure the first run has internet access and enough free disk space, then restart. Hugging Face assets remain in the normal local cache.
 - **A language sounds weak:** non-English voice training and grapheme-to-phoneme support vary. Try another voice for that language, shorter segments, or a slightly slower speed.

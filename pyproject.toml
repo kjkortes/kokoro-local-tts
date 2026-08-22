@@ -38,6 +38,13 @@ explicit = true
 
 [tool.pytest.ini_options]
 addopts = "-ra"
+filterwarnings = [
+  "ignore:Using `httpx` with `starlette.testclient` is deprecated.*:DeprecationWarning",
+  "ignore:dropout option adds dropout.*:UserWarning",
+  "ignore:`torch.nn.utils.weight_norm` is deprecated.*:FutureWarning",
+  "ignore:`torch.jit.script` is deprecated.*:DeprecationWarning",
+  "ignore:open_text is deprecated.*:DeprecationWarning",
+]
 markers = ["smoke: downloads and runs the real Kokoro model"]
 pythonpath = ["backend"]
 testpaths = ["backend/tests"]

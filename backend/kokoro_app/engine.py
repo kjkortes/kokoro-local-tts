@@ -21,7 +21,7 @@ class EngineStatus:
 def _default_pipeline_factory(language: str) -> Any:
     from kokoro import KPipeline
 
-    return KPipeline(lang_code=language)
+    return KPipeline(lang_code=language, repo_id="hexgrad/Kokoro-82M")
 
 
 def _as_numpy(audio: Any) -> np.ndarray:
