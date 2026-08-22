@@ -21,10 +21,33 @@ Then run:
 ./run.sh
 ```
 
-Open [http://127.0.0.1:8000](http://127.0.0.1:8000). The server deliberately binds to localhost only. To choose another port:
+The launcher prints two addresses:
+
+```text
+On this computer       → http://127.0.0.1:8000
+On your home network   → http://192.168.x.x:8000
+```
+
+Open the home-network address from a phone, tablet, or another computer connected to the same Wi-Fi or Ethernet network. The app listens on all network interfaces by default.
+
+There is no sign-in screen. Anyone who can reach the app can submit scripts, use this machine's CPU, and access generated audio. Only run it on a home network you trust; do not expose port 8000 through your router to the public internet.
+
+To choose another port:
 
 ```bash
 KOKORO_PORT=8080 ./run.sh
+```
+
+To restore localhost-only access for a session:
+
+```bash
+KOKORO_HOST=127.0.0.1 ./run.sh
+```
+
+If Ubuntu's firewall blocks another device, allow the selected port on the local network:
+
+```bash
+sudo ufw allow 8000/tcp
 ```
 
 The first start can take several minutes while Kokoro downloads and loads. The header reports `Loading model`, `Model ready`, or an actionable setup error.
@@ -81,6 +104,6 @@ KOKORO_SMOKE=1 uv run --extra test pytest backend/tests/test_inference_smoke.py 
 - **FFmpeg is missing or cannot encode a format:** run `sudo apt-get install -y ffmpeg` and verify `ffmpeg -version`.
 - **The model does not load:** make sure the first run has internet access and enough free disk space, then restart. Hugging Face assets remain in the normal local cache.
 - **A language sounds weak:** non-English voice training and grapheme-to-phoneme support vary. Try another voice for that language, shorter segments, or a slightly slower speed.
-- **The browser cannot reach the service:** use the exact local URL printed by `run.sh` and keep the terminal process running.
+- **A phone cannot reach the service:** confirm both devices are on the same home network, use the `On your home network` URL printed by `run.sh`, keep the terminal process running, and allow the selected port through the Linux firewall if needed.
 
 Kokoro model weights are Apache 2.0 licensed. See the upstream [Kokoro-82M model card](https://huggingface.co/hexgrad/Kokoro-82M) for model details and voice attribution.
