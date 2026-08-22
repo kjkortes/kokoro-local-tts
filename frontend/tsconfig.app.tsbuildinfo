@@ -1,0 +1,1 @@
+{"root":["./src/api.ts","./src/types.ts","./src/hooks/useGeneration.ts","./tests/setup.ts","./tests/useGeneration.test.tsx"],"version":"5.9.3"}
