@@ -2,6 +2,7 @@ import {useEffect, useMemo, useState} from "react";
 
 import {getConfig, getStatus} from "./api";
 import {AppHeader} from "./components/AppHeader";
+import {AudioTransport} from "./components/AudioTransport";
 import {ErrorNotice} from "./components/ErrorNotice";
 import {ExpressionControls} from "./components/ExpressionControls";
 import {GenerateBar} from "./components/GenerateBar";
@@ -130,7 +131,11 @@ export function App() {
             blend_ratio: blendRatio, preset, expression, output_format: format, normalize,
           })}
         />
-        <div className="transport-placeholder" aria-hidden="true"><span>Audio transport appears here after generation</span><i /></div>
+        {generation.job?.state === "complete" ? (
+          <AudioTransport result={generation.job} />
+        ) : (
+          <div className="transport-placeholder" aria-hidden="true"><span>Audio transport appears here after generation</span><i /></div>
+        )}
       </main>
       <footer><span>Kokoro 82M</span><span>Private by default · Apache 2.0</span></footer>
     </div>
