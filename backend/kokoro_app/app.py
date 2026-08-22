@@ -8,6 +8,7 @@ from pathlib import Path
 from fastapi import FastAPI, HTTPException, Request, status
 from fastapi.exceptions import RequestValidationError
 from fastapi.responses import FileResponse, JSONResponse
+from fastapi.staticfiles import StaticFiles
 
 from kokoro_app import __version__
 from kokoro_app.catalog import LANGUAGES, VOICES
@@ -25,6 +26,7 @@ from kokoro_app.schemas import (
 
 
 RUNTIME_DIR = Path(__file__).resolve().parents[2] / "runtime" / "audio"
+FRONTEND_DIST = Path(__file__).resolve().parents[2] / "frontend" / "dist"
 
 
 def _job_response(record: JobRecord) -> JobResponse:
@@ -51,6 +53,7 @@ def create_app(
     jobs: JobManager | None = None,
     *,
     preload_model: bool = True,
+    frontend_dist: Path | None = None,
 ) -> FastAPI:
     active_engine = engine or KokoroEngine()
     active_jobs = jobs or JobManager(active_engine, RUNTIME_DIR)
@@ -66,6 +69,7 @@ def create_app(
     application = FastAPI(title="Kokoro Local TTS", version=__version__, lifespan=lifespan)
     application.state.engine = active_engine
     application.state.jobs = active_jobs
+    dist = Path(frontend_dist) if frontend_dist is not None else FRONTEND_DIST
 
     @application.exception_handler(RequestValidationError)
     async def validation_error(_: Request, error: RequestValidationError) -> JSONResponse:
@@ -145,6 +149,21 @@ def create_app(
     def download_audio(job_id: str) -> FileResponse:
         record, path = result_file(job_id)
         return FileResponse(path, filename=record.filename)
+
+    if dist.joinpath("assets").is_dir():
+        application.mount("/assets", StaticFiles(directory=dist / "assets"), name="assets")
+
+    @application.get("/{path:path}", include_in_schema=False)
+    def spa_fallback(path: str):
+        if path.startswith("api/"):
+            return JSONResponse(_error("not_found", "API route not found."), status_code=404)
+        index = dist / "index.html"
+        if index.is_file():
+            return FileResponse(index)
+        return JSONResponse(
+            _error("frontend_missing", "The web interface has not been built.", "Run ./run.sh to build and start the app."),
+            status_code=503,
+        )
 
     return application
 
