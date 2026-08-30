@@ -2,9 +2,10 @@ import time
 from pathlib import Path
 
 import numpy as np
+import pytest
 
 from kokoro_app.jobs import JobManager
-from kokoro_app.schemas import GenerationRequest, JobState
+from kokoro_app.schemas import ExpressionSettings, GenerationRequest, JobState
 
 
 class FakeEngine:
@@ -35,6 +36,42 @@ def test_job_moves_from_queued_to_complete_and_reports_progress(tmp_path: Path) 
     manager.shutdown()
 
 
+def test_completed_job_records_spoken_segment_timestamps(tmp_path: Path) -> None:
+    manager = JobManager(FakeEngine(), tmp_path, encoder=fake_encode)
+    record = manager.create(GenerationRequest(text="One. Two."))
+    wait_for(manager, record.id, JobState.complete)
+
+    assert manager.get(record.id).segments == [
+        {"text": "One.", "start": 0.0, "end": 0.05, "paragraph_end": False},
+        {"text": "Two.", "start": 0.27, "end": 0.32, "paragraph_end": True},
+    ]
+    manager.shutdown()
+
+
+def test_segment_timestamps_follow_chunk_lengths_pause_scaling_and_tempo(tmp_path: Path) -> None:
+    class VaryingEngine(FakeEngine):
+        calls = 0
+
+        def synthesize(self, *args, **kwargs) -> np.ndarray:
+            self.calls += 1
+            return np.ones(1200 * self.calls, dtype=np.float32)
+
+    manager = JobManager(VaryingEngine(), tmp_path, encoder=fake_encode)
+    record = manager.create(GenerationRequest(
+        text="One. Two.",
+        expression=ExpressionSettings(tempo=1.25, pause_scale=1.5),
+    ))
+    wait_for(manager, record.id, JobState.complete)
+    finished = manager.get(record.id)
+
+    assert finished.segments[0]["start"] == 0.0
+    assert finished.segments[0]["end"] == pytest.approx(0.04)
+    assert finished.segments[1]["start"] == pytest.approx(0.304)
+    assert finished.segments[1]["end"] == pytest.approx(0.384)
+    assert finished.duration == pytest.approx(0.384)
+    manager.shutdown()
+
+
 def test_cancelled_queued_job_does_not_expose_partial_audio(tmp_path: Path) -> None:
     class SlowEngine(FakeEngine):
         def synthesize(self, *args, **kwargs) -> np.ndarray:
@@ -49,4 +86,3 @@ def test_cancelled_queued_job_does_not_expose_partial_audio(tmp_path: Path) -> N
     assert manager.get(second.id).result_path is None
     wait_for(manager, first.id, JobState.complete)
     manager.shutdown()
-

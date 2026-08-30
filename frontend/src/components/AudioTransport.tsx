@@ -9,6 +9,47 @@ function formatTime(seconds: number) {
   return `${Math.floor(safe / 60)}:${String(safe % 60).padStart(2, "0")}`;
 }
 
+function formatTimestamp(seconds: number) {
+  const safe = Number.isFinite(seconds) ? Math.max(0, seconds) : 0;
+  const wholeSeconds = Math.floor(safe);
+  const tenth = Math.floor(safe * 10) % 10;
+  return `${Math.floor(wholeSeconds / 60)}:${String(wholeSeconds % 60).padStart(2, "0")}.${tenth}`;
+}
+
+function formatTimestampedTranscript(segments: NonNullable<JobResponse["segments"]>) {
+  return segments.map((segment, index) => {
+    const line = `[${formatTimestamp(segment.start)} — ${formatTimestamp(segment.end)}] ${segment.text}`;
+    if (index === segments.length - 1) return line;
+    return `${line}${segment.paragraph_end ? "\n\n" : "\n"}`;
+  }).join("");
+}
+
+async function writeClipboard(text: string) {
+  if (navigator.clipboard?.writeText) {
+    try {
+      await navigator.clipboard.writeText(text);
+      return true;
+    } catch {
+      // Fall through for browsers that restrict Clipboard API access on local-network HTTP.
+    }
+  }
+  let field: HTMLTextAreaElement | null = null;
+  try {
+    field = document.createElement("textarea");
+    field.value = text;
+    field.readOnly = true;
+    field.style.position = "fixed";
+    field.style.opacity = "0";
+    document.body.append(field);
+    field.select();
+    return typeof document.execCommand === "function" && document.execCommand("copy");
+  } catch {
+    return false;
+  } finally {
+    field?.remove();
+  }
+}
+
 function useWaveform(url: string | null) {
   const [envelope, setEnvelope] = useState<number[]>([]);
   useEffect(() => {
@@ -47,9 +88,24 @@ function useWaveform(url: string | null) {
 export function AudioTransport({result}: {result: JobResponse}) {
   const audioRef = useRef<HTMLAudioElement>(null);
   const canvasRef = useRef<HTMLCanvasElement>(null);
+  const copyAttemptRef = useRef(0);
+  const copyQueueRef = useRef(Promise.resolve());
+  const [copyState, setCopyState] = useState<"idle" | "copied" | "failed">("idle");
+  const [copyCount, setCopyCount] = useState(0);
+  const [transcriptView, setTranscriptView] = useState<"transcript" | "json">("transcript");
   const transport = useAudioTransport(audioRef, result.duration ?? 0);
   const envelope = useWaveform(result.audio_url);
+  const segments = result.segments ?? [];
+  const timescriptJson = JSON.stringify(segments.map(({start, end, text}) => ({start, end, text})), null, 2);
+  const copyContent = transcriptView === "json" ? timescriptJson : formatTimestampedTranscript(segments);
+  const transcriptIsJson = transcriptView === "json";
+  const transcriptDownloadName = `${(result.filename ?? "kokoro-audio").replace(/\.[^.]+$/, "") || "kokoro-audio"}-${transcriptIsJson ? "timescript.json" : "transcript.txt"}`;
+  const transcriptDownloadUrl = `data:${transcriptIsJson ? "application/json" : "text/plain"};charset=utf-8,${encodeURIComponent(copyContent)}`;
   const progress = transport.duration ? transport.currentTime / transport.duration : 0;
+  const activeSegment = segments.findIndex((segment) => (
+    transport.currentTime >= segment.start
+    && transport.currentTime < segment.end
+  ));
 
   useEffect(() => {
     const canvas = canvasRef.current;
@@ -81,31 +137,127 @@ export function AudioTransport({result}: {result: JobResponse}) {
   }, [envelope, progress]);
 
   const format = result.filename?.split(".").pop()?.toUpperCase() ?? "AUDIO";
+  const changeTranscriptView = (view: "transcript" | "json") => {
+    if (view === transcriptView) return;
+    copyAttemptRef.current += 1;
+    setTranscriptView(view);
+    setCopyState("idle");
+    setCopyCount(0);
+  };
+  const copyTranscript = async () => {
+    if (segments.length === 0) return;
+    const attempt = copyAttemptRef.current + 1;
+    copyAttemptRef.current = attempt;
+    const pendingCopy = copyQueueRef.current.then(() => writeClipboard(copyContent));
+    copyQueueRef.current = pendingCopy.then(() => undefined, () => undefined);
+    const copied = await pendingCopy;
+    if (attempt !== copyAttemptRef.current) return;
+    setCopyState(copied ? "copied" : "failed");
+    if (copied) setCopyCount((count) => count + 1);
+  };
   return (
-    <section className="audio-transport" aria-label="Generated audio">
-      <audio ref={audioRef} src={result.audio_url ?? undefined} preload="metadata" />
-      <button className="play-button" type="button" onClick={transport.toggle} aria-label={transport.playing ? "Pause" : "Play"}>
-        <span aria-hidden="true">{transport.playing ? "Ⅱ" : "▶"}</span>
-      </button>
-      <div className="transport-main">
-        <div className="transport-copy"><b>{result.filename ?? "Generated speech"}</b><span>{formatTime(transport.currentTime)} / {formatTime(transport.duration)}</span></div>
-        <div className="waveform-wrap">
-          <canvas ref={canvasRef} aria-hidden="true" />
-          <input
-            aria-label="Seek audio"
-            type="range"
-            min="0"
-            max={Math.max(transport.duration, .01)}
-            step="0.01"
-            value={Math.min(transport.currentTime, Math.max(transport.duration, .01))}
-            onChange={(event) => transport.seek(Number(event.target.value))}
-          />
+    <>
+      <section className="audio-transport" aria-label="Generated audio">
+        <audio ref={audioRef} src={result.audio_url ?? undefined} preload="metadata" />
+        <button className="play-button" type="button" onClick={transport.toggle} aria-label={transport.playing ? "Pause" : "Play"}>
+          <span aria-hidden="true">{transport.playing ? "Ⅱ" : "▶"}</span>
+        </button>
+        <div className="transport-main">
+          <div className="transport-copy"><b>{result.filename ?? "Generated speech"}</b><span>{formatTime(transport.currentTime)} / {formatTime(transport.duration)}</span></div>
+          <div className="waveform-wrap">
+            <canvas ref={canvasRef} aria-hidden="true" />
+            <input
+              aria-label="Seek audio"
+              type="range"
+              min="0"
+              max={Math.max(transport.duration, .01)}
+              step="0.01"
+              value={Math.min(transport.currentTime, Math.max(transport.duration, .01))}
+              onChange={(event) => transport.seek(Number(event.target.value))}
+            />
+          </div>
         </div>
-      </div>
-      <a className="download-button" href={result.download_url ?? "#"} download={result.filename ?? true}>
-        <span>Download {format}</span><span aria-hidden="true">↓</span>
-      </a>
-    </section>
+        <a className="download-button" href={result.download_url ?? "#"} download={result.filename ?? true}>
+          <span>Download {format}</span><span aria-hidden="true">↓</span>
+        </a>
+      </section>
+      {segments.length > 0 && (
+        <section className="transcript-panel" aria-label="Timestamped transcript">
+          <div className="transcript-heading">
+            <h2>Timestamped transcript</h2>
+            <div className="transcript-view-switch" aria-label="Timescript format">
+              <button
+                type="button"
+                aria-label="Transcript view"
+                aria-pressed={transcriptView === "transcript"}
+                onClick={() => changeTranscriptView("transcript")}
+              >
+                Transcript
+              </button>
+              <button
+                type="button"
+                aria-label="JSON view"
+                aria-pressed={transcriptView === "json"}
+                onClick={() => changeTranscriptView("json")}
+              >
+                JSON
+              </button>
+            </div>
+            <div className="transcript-actions">
+              <button
+                className="transcript-action copy-transcript"
+                type="button"
+                onClick={copyTranscript}
+              >
+                {transcriptIsJson ? "Copy JSON" : "Copy transcript"}
+              </button>
+              <a
+                className="transcript-action transcript-download"
+                href={transcriptDownloadUrl}
+                download={transcriptDownloadName}
+              >
+                <span>{transcriptIsJson ? "Download JSON" : "Download transcript"}</span>
+                <span aria-hidden="true">↓</span>
+              </a>
+            </div>
+            {copyState !== "idle" && (
+              <span className={`copy-status ${copyState}`} role="status">
+                {copyState === "copied"
+                  ? `${transcriptView === "json" ? "JSON" : "Transcript"} copied${copyCount > 1 ? ` · ${copyCount}` : ""}`
+                  : `Copy failed. Select the ${transcriptView === "json" ? "JSON" : "full transcript"} below.`}
+              </span>
+            )}
+          </div>
+          {copyState === "failed" && (
+            <textarea
+              className="manual-transcript"
+              aria-label={transcriptView === "json" ? "Full JSON timescript" : "Full transcript"}
+              readOnly
+              value={copyContent}
+              onFocus={(event) => event.currentTarget.select()}
+            />
+          )}
+          {transcriptView === "transcript" ? (
+            <ol className="transcript-segments">
+              {segments.map((segment, index) => (
+                <li key={`${segment.start}-${segment.end}`}>
+                  <button
+                    type="button"
+                    aria-label={`Seek to segment at ${formatTimestamp(segment.start)}: ${segment.text}`}
+                    aria-current={activeSegment === index ? "true" : undefined}
+                    onClick={() => transport.seek(segment.start)}
+                  >
+                    <time>{formatTimestamp(segment.start)} — {formatTimestamp(segment.end)}</time>
+                    <span>{segment.text}</span>
+                  </button>
+                </li>
+              ))}
+            </ol>
+          ) : (
+            <pre className="timescript-json" aria-label="Timescript JSON"><code>{timescriptJson}</code></pre>
+          )}
+        </section>
+      )}
+    </>
   );
 }
-

@@ -106,6 +106,13 @@ class StatusResponse(BaseModel):
     detail: str | None = None
 
 
+class TranscriptSegment(BaseModel):
+    text: str
+    start: float = Field(ge=0.0)
+    end: float = Field(ge=0.0)
+    paragraph_end: bool = False
+
+
 class JobResponse(BaseModel):
     id: str
     state: JobState
@@ -116,6 +123,8 @@ class JobResponse(BaseModel):
     download_url: str | None = None
     filename: str | None = None
     duration: float | None = None
+    segments: list[TranscriptSegment] = Field(default_factory=list)
+    transcript: str | None = None
 
 
 class ErrorBody(BaseModel):
@@ -126,4 +135,3 @@ class ErrorBody(BaseModel):
 
 class ErrorResponse(BaseModel):
     error: ErrorBody
-

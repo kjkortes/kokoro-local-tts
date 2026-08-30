@@ -1,4 +1,5 @@
 from pathlib import Path
+import time
 
 import numpy as np
 from fastapi.testclient import TestClient
@@ -45,6 +46,40 @@ def test_blank_generation_is_actionable(tmp_path: Path) -> None:
     )
     assert response.status_code == 422
     assert response.json()["error"]["code"] == "invalid_text"
+    jobs.shutdown()
+
+
+def test_completed_generation_exposes_timestamped_transcript(tmp_path: Path) -> None:
+    client, jobs = make_client(tmp_path)
+    created = client.post(
+        "/api/jobs",
+        json={"text": "One. Two.", "language": "a", "primary_voice": "af_heart"},
+    ).json()
+    deadline = time.time() + 2
+    body = created
+    while body["state"] != "complete" and time.time() < deadline:
+        body = client.get(f"/api/jobs/{created['id']}").json()
+
+    assert body["segments"] == [
+        {"text": "One.", "start": 0.0, "end": 0.05, "paragraph_end": False},
+        {"text": "Two.", "start": 0.27, "end": 0.32, "paragraph_end": True},
+    ]
+    jobs.shutdown()
+
+
+def test_completed_generation_preserves_the_full_transcript(tmp_path: Path) -> None:
+    client, jobs = make_client(tmp_path)
+    original = "First paragraph.\n\nSecond paragraph."
+    created = client.post(
+        "/api/jobs",
+        json={"text": original, "language": "a", "primary_voice": "af_heart"},
+    ).json()
+    deadline = time.time() + 2
+    body = created
+    while body["state"] != "complete" and time.time() < deadline:
+        body = client.get(f"/api/jobs/{created['id']}").json()
+
+    assert body["transcript"] == original
     jobs.shutdown()
 
 

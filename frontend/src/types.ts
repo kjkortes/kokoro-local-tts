@@ -68,6 +68,13 @@ export interface GenerationRequest {
   normalize: boolean;
 }
 
+export interface TranscriptSegment {
+  text: string;
+  start: number;
+  end: number;
+  paragraph_end?: boolean;
+}
+
 export interface JobResponse {
   id: string;
   state: JobState;
@@ -78,5 +85,6 @@ export interface JobResponse {
   download_url: string | null;
   filename: string | null;
   duration: number | null;
+  segments: TranscriptSegment[];
+  transcript: string | null;
 }
-

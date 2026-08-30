@@ -40,6 +40,8 @@ def _job_response(record: JobRecord) -> JobResponse:
         download_url=f"/api/jobs/{record.id}/download" if complete else None,
         filename=record.filename,
         duration=record.duration,
+        segments=record.segments,
+        transcript=record.request.text if complete else None,
     )
 
 

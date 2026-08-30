@@ -39,6 +39,8 @@ function stubApi() {
       id: "one", state: "complete", phase: "Audio ready", progress: 1, error: null,
       audio_url: "/api/jobs/one/audio", download_url: "/api/jobs/one/download",
       filename: "script.wav", duration: 1,
+      segments: [{text: "A calm local voice.", start: 0, end: 1}],
+      transcript: "A calm local voice.",
     }, {status: init?.method === "POST" ? 202 : 200});
   }));
   return calls;

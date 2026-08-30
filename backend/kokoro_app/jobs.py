@@ -30,6 +30,7 @@ class JobRecord:
     result_path: Path | None = None
     filename: str | None = None
     duration: float | None = None
+    segments: list[dict[str, str | float | bool]] = field(default_factory=list)
     created_at: float = field(default_factory=time.time)
 
 
@@ -152,6 +153,19 @@ class JobManager:
                 record.result_path = destination
                 record.filename = _filename_for(record.request)
                 record.duration = len(pcm) / SAMPLE_RATE / expression.tempo
+                cursor = 0
+                record.segments = []
+                for index, (chunk, audio) in enumerate(zip(chunks, generated, strict=True)):
+                    spoken_end = cursor + len(audio)
+                    record.segments.append({
+                        "text": chunk.text,
+                        "start": cursor / SAMPLE_RATE / expression.tempo,
+                        "end": spoken_end / SAMPLE_RATE / expression.tempo,
+                        "paragraph_end": chunk.kind == "paragraph",
+                    })
+                    cursor = spoken_end
+                    if index < len(generated) - 1:
+                        cursor += round(SAMPLE_RATE * pauses[index] / 1000)
             self._set(record, JobState.complete, "Audio ready", 1.0)
         except Exception as error:
             if record.result_path:
@@ -176,4 +190,3 @@ class JobManager:
 
     def shutdown(self) -> None:
         self._executor.shutdown(wait=True, cancel_futures=True)
-

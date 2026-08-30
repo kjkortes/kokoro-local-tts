@@ -27,6 +27,8 @@ function response(state: JobResponse["state"]): JobResponse {
     download_url: state === "complete" ? "/api/jobs/job-1/download" : null,
     filename: state === "complete" ? "hello.wav" : null,
     duration: state === "complete" ? 1.2 : null,
+    segments: [],
+    transcript: state === "complete" ? "Hello from Kokoro." : null,
   };
 }
 
