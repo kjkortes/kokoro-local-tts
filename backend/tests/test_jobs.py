@@ -120,52 +120,82 @@ def test_storyboard_rows_remain_exact_segments_when_a_row_uses_multiple_chunks(t
 
     assert manager.get(record.id).segments == [
         {"text": "One. Two.", "start": 0.0, "end": 0.32, "paragraph_end": True},
-        {"text": "Third row, exactly!", "start": 0.84, "end": 0.89, "paragraph_end": True},
+        {"text": "Third row, exactly!", "start": 0.54, "end": 0.59, "paragraph_end": True},
     ]
     manager.shutdown()
 
 
-def test_storyboard_comma_boundary_uses_short_continuation_pause(tmp_path: Path) -> None:
-    manager = JobManager(FakeEngine(), tmp_path, encoder=fake_encode)
+def test_storyboard_rows_are_synthesized_as_one_continuous_narration(tmp_path: Path) -> None:
+    class RecordingEngine(FakeEngine):
+        calls: list[str]
+
+        def __init__(self) -> None:
+            self.calls = []
+
+        def synthesize(self, text, *args, **kwargs) -> SynthesisResult:
+            self.calls.append(text)
+            return super().synthesize(text, *args, **kwargs)
+
+    engine = RecordingEngine()
+    manager = JobManager(engine, tmp_path, encoder=fake_encode)
     record = manager.create(GenerationRequest(
         text="The thought begins,\n\nand continues naturally.",
         segments=["The thought begins,", "and continues naturally."],
     ))
     wait_for(manager, record.id, JobState.complete)
 
-    finished = manager.get(record.id)
-    assert finished.segments[0]["end"] == pytest.approx(0.05)
-    assert finished.segments[1]["start"] == pytest.approx(0.15)
+    assert engine.calls == ["The thought begins, and continues naturally."]
+    assert [segment["text"] for segment in manager.get(record.id).segments] == [
+        "The thought begins,",
+        "and continues naturally.",
+    ]
     manager.shutdown()
 
 
-def test_storyboard_custom_comma_pause_overrides_general_pause(tmp_path: Path) -> None:
-    manager = JobManager(FakeEngine(), tmp_path, encoder=fake_encode)
+def test_storyboard_rows_keep_monotonic_timestamps_inside_shared_audio(tmp_path: Path) -> None:
+    class OneSecondEngine(FakeEngine):
+        def synthesize(self, *args, **kwargs) -> SynthesisResult:
+            return SynthesisResult(np.ones(24_000, dtype=np.float32))
+
+    manager = JobManager(OneSecondEngine(), tmp_path, encoder=fake_encode)
     record = manager.create(GenerationRequest(
-        text="The thought begins,\n\nand continues.\n\nA new sentence.",
-        segments=["The thought begins,", "and continues.", "A new sentence."],
-        comma_pause_ms=40,
-        pause_ms=750,
+        text="Short first row,\n\na considerably longer second row.",
+        segments=["Short first row,", "a considerably longer second row."],
     ))
     wait_for(manager, record.id, JobState.complete)
+    first, second = manager.get(record.id).segments
 
-    finished = manager.get(record.id)
-    assert finished.segments[1]["start"] == pytest.approx(0.09)
-    assert finished.segments[2]["start"] == pytest.approx(0.89)
+    assert first["start"] == 0.0
+    assert 0 < first["end"] <= second["start"] < second["end"]
+    assert second["end"] == pytest.approx(1.0)
     manager.shutdown()
 
 
-@pytest.mark.parametrize("comma", ["，", "、"])
-def test_storyboard_multilingual_commas_use_continuation_pause(tmp_path: Path, comma: str) -> None:
-    manager = JobManager(FakeEngine(), tmp_path, encoder=fake_encode)
-    first = f"First clause{comma}"
-    record = manager.create(GenerationRequest(
-        text=f"{first}\n\nsecond clause.",
-        segments=[first, "second clause."],
-    ))
-    wait_for(manager, record.id, JobState.complete)
+def test_long_storyboard_keeps_rows_separate_from_speech_chunks(tmp_path: Path) -> None:
+    class RecordingEngine(FakeEngine):
+        def __init__(self) -> None:
+            self.calls: list[str] = []
 
-    assert manager.get(record.id).segments[1]["start"] == pytest.approx(0.15)
+        def synthesize(self, text, *args, **kwargs) -> SynthesisResult:
+            self.calls.append(text)
+            return super().synthesize(text, *args, **kwargs)
+
+    rows = ["alpha " * 50, "beta " * 50, "gamma " * 50]
+    rows = [row.strip() for row in rows]
+    engine = RecordingEngine()
+    manager = JobManager(engine, tmp_path, encoder=fake_encode)
+    record = manager.create(GenerationRequest(text="\n\n".join(rows), segments=rows))
+    wait_for(manager, record.id, JobState.complete)
+    finished = manager.get(record.id)
+
+    assert len(engine.calls) >= 2
+    assert all(call not in rows for call in engine.calls)
+    assert [segment["text"] for segment in finished.segments] == rows
+    assert all(
+        current["end"] <= following["start"]
+        for current, following in zip(finished.segments, finished.segments[1:])
+    )
+    assert finished.segments[-1]["end"] == pytest.approx(finished.duration)
     manager.shutdown()
 
 

@@ -17,7 +17,6 @@ from kokoro_app.schemas import GenerationRequest, JobState
 
 
 Encoder = Callable[..., None]
-_CONTINUATION_COMMAS = (",", "，", "、")
 
 
 @dataclass
@@ -40,6 +39,13 @@ class JobNotFoundError(KeyError):
     pass
 
 
+@dataclass(frozen=True)
+class SpeechPlan:
+    chunks: tuple[TextChunk, ...]
+    chunk_text_ranges: tuple[tuple[int, int], ...]
+    storyboard_ranges: tuple[tuple[int, int], ...] | None
+
+
 def _filename_for(request: GenerationRequest) -> str:
     words = re.findall(r"[\w'-]+", request.text, flags=re.UNICODE)[:6]
     stem = "-".join(words).lower() or "kokoro-speech"
@@ -47,24 +53,58 @@ def _filename_for(request: GenerationRequest) -> str:
     return f"{stem}.{request.output_format.value}"
 
 
-def _speech_chunks(
-    request: GenerationRequest,
-) -> tuple[list[TextChunk], list[int], list[tuple[str, bool]]]:
-    if request.segments is None:
-        chunks = chunk_script(request.text)
-        return (
-            chunks,
-            list(range(len(chunks))),
-            [(chunk.text, chunk.kind == "paragraph") for chunk in chunks],
-        )
+def _normalized_speech(text: str) -> str:
+    return re.sub(r"\s+", " ", text).strip()
 
-    chunks: list[TextChunk] = []
-    segment_indexes: list[int] = []
-    for segment_index, segment in enumerate(request.segments):
-        segment_chunks = chunk_script(segment)
-        chunks.extend(segment_chunks)
-        segment_indexes.extend([segment_index] * len(segment_chunks))
-    return chunks, segment_indexes, [(segment, True) for segment in request.segments]
+
+def _locate_chunks(text: str, chunks: tuple[TextChunk, ...]) -> tuple[tuple[int, int], ...]:
+    ranges = []
+    cursor = 0
+    for chunk in chunks:
+        start = text.find(chunk.text, cursor)
+        if start < 0:
+            raise ValueError("Speech chunk could not be mapped to its source text")
+        end = start + len(chunk.text)
+        ranges.append((start, end))
+        cursor = end
+    return tuple(ranges)
+
+
+def _speech_plan(request: GenerationRequest) -> SpeechPlan:
+    if request.segments is None:
+        chunks = tuple(chunk_script(request.text))
+        return SpeechPlan(chunks, (), None)
+
+    spoken_segments = tuple(_normalized_speech(segment) for segment in request.segments)
+    synthesis_text = " ".join(spoken_segments)
+    chunks = tuple(chunk_script(synthesis_text))
+    segment_ranges = []
+    cursor = 0
+    for segment in spoken_segments:
+        start = cursor
+        end = start + len(segment)
+        segment_ranges.append((start, end))
+        cursor = end + 1
+    return SpeechPlan(chunks, _locate_chunks(synthesis_text, chunks), tuple(segment_ranges))
+
+
+def _sample_at_text_offset(
+    offset: int,
+    chunk_text_ranges: tuple[tuple[int, int], ...],
+    chunk_audio_ranges: list[tuple[int, int]],
+) -> int:
+    if not chunk_audio_ranges:
+        return 0
+    for (text_start, text_end), (audio_start, audio_end) in zip(
+        chunk_text_ranges, chunk_audio_ranges, strict=True
+    ):
+        if offset <= text_start:
+            return audio_start
+        if offset <= text_end:
+            text_length = max(1, text_end - text_start)
+            position = min(text_length, max(0, offset - text_start))
+            return audio_start + round((audio_end - audio_start) * position / text_length)
+    return chunk_audio_ranges[-1][1]
 
 
 class JobManager:
@@ -132,18 +172,18 @@ class JobManager:
         try:
             self._set(record, JobState.loading_model, "Loading Kokoro", 0.02)
             expression = resolve_expression(record.request.preset, record.request.expression)
-            chunks, chunk_segment_indexes, segment_specs = _speech_chunks(record.request)
+            plan = _speech_plan(record.request)
             generated = []
             aligned_words: list[tuple[AlignedWord, ...]] = []
             pauses = []
-            for index, chunk in enumerate(chunks):
+            for index, chunk in enumerate(plan.chunks):
                 if self._cancelled(record):
                     return
                 self._set(
                     record,
                     JobState.synthesizing,
-                    f"Speaking segment {index + 1} of {len(chunks)}",
-                    0.05 + (index / len(chunks)) * 0.80,
+                    f"Speaking segment {index + 1} of {len(plan.chunks)}",
+                    0.05 + (index / len(plan.chunks)) * 0.80,
                 )
                 synthesis = self.engine.synthesize(
                     chunk.text,
@@ -155,22 +195,10 @@ class JobManager:
                 )
                 generated.append(synthesis.audio)
                 aligned_words.append(synthesis.words)
-                is_storyboard_comma_boundary = (
-                    record.request.segments is not None
-                    and index < len(chunks) - 1
-                    and chunk_segment_indexes[index] != chunk_segment_indexes[index + 1]
-                    and record.request.segments[chunk_segment_indexes[index]].rstrip().endswith(
-                        _CONTINUATION_COMMAS
-                    )
-                )
                 pauses.append(
-                    record.request.comma_pause_ms
-                    if is_storyboard_comma_boundary
-                    else (
-                        record.request.pause_ms
-                        if record.request.pause_ms is not None
-                        else round(chunk.pause_after_ms * expression.pause_scale)
-                    )
+                    record.request.pause_ms
+                    if record.request.pause_ms is not None
+                    else round(chunk.pause_after_ms * expression.pause_scale)
                 )
             if self._cancelled(record):
                 return
@@ -188,42 +216,59 @@ class JobManager:
             if self._cancelled(record):
                 destination.unlink(missing_ok=True)
                 return
+            chunk_audio_ranges = []
+            cursor = 0
+            for index, audio in enumerate(generated):
+                spoken_end = cursor + len(audio)
+                chunk_audio_ranges.append((cursor, spoken_end))
+                cursor = spoken_end
+                if index < len(generated) - 1:
+                    cursor += round(SAMPLE_RATE * pauses[index] / 1000)
             with self._lock:
                 record.result_path = destination
                 record.filename = _filename_for(record.request)
                 record.duration = len(pcm) / SAMPLE_RATE / expression.tempo
-                cursor = 0
                 record.segments = []
                 record.words = []
-                segment_records: dict[int, dict[str, str | float | bool]] = {}
-                for index, (chunk, audio, words) in enumerate(
-                    zip(chunks, generated, aligned_words, strict=True)
-                ):
-                    spoken_end = cursor + len(audio)
-                    segment_index = chunk_segment_indexes[index]
-                    if segment_index not in segment_records:
-                        text, paragraph_end = segment_specs[segment_index]
-                        segment_record: dict[str, str | float | bool] = {
-                            "text": text,
-                            "start": cursor / SAMPLE_RATE / expression.tempo,
-                            "end": spoken_end / SAMPLE_RATE / expression.tempo,
-                            "paragraph_end": paragraph_end,
-                        }
-                        segment_records[segment_index] = segment_record
-                        record.segments.append(segment_record)
-                    else:
-                        segment_records[segment_index]["end"] = (
-                            spoken_end / SAMPLE_RATE / expression.tempo
+                if plan.storyboard_ranges is None:
+                    for chunk, (audio_start, audio_end) in zip(
+                        plan.chunks, chunk_audio_ranges, strict=True
+                    ):
+                        record.segments.append({
+                            "text": chunk.text,
+                            "start": audio_start / SAMPLE_RATE / expression.tempo,
+                            "end": audio_end / SAMPLE_RATE / expression.tempo,
+                            "paragraph_end": chunk.kind == "paragraph",
+                        })
+                else:
+                    for text, (text_start, text_end) in zip(
+                        record.request.segments, plan.storyboard_ranges, strict=True
+                    ):
+                        audio_start = _sample_at_text_offset(
+                            text_start, plan.chunk_text_ranges, chunk_audio_ranges
                         )
+                        audio_end = _sample_at_text_offset(
+                            text_end, plan.chunk_text_ranges, chunk_audio_ranges
+                        )
+                        record.segments.append({
+                            "text": text,
+                            "start": audio_start / SAMPLE_RATE / expression.tempo,
+                            "end": audio_end / SAMPLE_RATE / expression.tempo,
+                            "paragraph_end": True,
+                        })
+                for (audio_start, _), words in zip(
+                    chunk_audio_ranges, aligned_words, strict=True
+                ):
                     for word in words:
                         record.words.append({
                             "text": word.text,
-                            "start": round((cursor / SAMPLE_RATE + word.start) / expression.tempo, 6),
-                            "end": round((cursor / SAMPLE_RATE + word.end) / expression.tempo, 6),
+                            "start": round(
+                                (audio_start / SAMPLE_RATE + word.start) / expression.tempo, 6
+                            ),
+                            "end": round(
+                                (audio_start / SAMPLE_RATE + word.end) / expression.tempo, 6
+                            ),
                         })
-                    cursor = spoken_end
-                    if index < len(generated) - 1:
-                        cursor += round(SAMPLE_RATE * pauses[index] / 1000)
             self._set(record, JobState.complete, "Audio ready", 1.0)
         except Exception as error:
             if record.result_path:
