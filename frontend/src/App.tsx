@@ -21,6 +21,7 @@ export function App() {
   const [status, setStatus] = useState<StatusResponse | null>(null);
   const [loadError, setLoadError] = useState<string | null>(null);
   const [text, setText] = useState("");
+  const [storyboardSegments, setStoryboardSegments] = useState<string[] | null>(null);
   const [language, setLanguage] = useState("a");
   const [gender, setGender] = useState<Gender | "all">("all");
   const [primary, setPrimary] = useState("af_heart");
@@ -29,10 +30,12 @@ export function App() {
   const [blendRatio, setBlendRatio] = useState(.35);
   const [preset, setPreset] = useState<PresetId>("neutral");
   const [expression, setExpression] = useState<Required<ExpressionValues>>(FALLBACK_VALUES);
+  const [pauseMs, setPauseMs] = useState<number | null>(null);
   const [custom, setCustom] = useState(false);
   const [format, setFormat] = useState<OutputFormat>("wav");
   const [normalize, setNormalize] = useState(true);
   const generation = useGeneration();
+  const speechText = storyboardSegments === null ? text : storyboardSegments.join("\n\n");
 
   useEffect(() => {
     const controller = new AbortController();
@@ -64,6 +67,7 @@ export function App() {
   function applyPreset(item: ExpressionPreset) {
     setPreset(item.id as PresetId);
     setExpression({speed: item.speed, pitch: item.pitch, tempo: item.tempo, pause_scale: item.pause_scale, volume: 1});
+    setPauseMs(null);
     setCustom(false);
   }
 
@@ -92,6 +96,11 @@ export function App() {
     setCustom(true);
   }
 
+  function updatePauseMs(value: number | null) {
+    setPauseMs(value);
+    setCustom(true);
+  }
+
   if (!config) {
     return (
       <div className="app-shell loading-shell">
@@ -107,7 +116,12 @@ export function App() {
       <main id="workspace">
         {(loadError || generation.error) && <ErrorNotice message={loadError ?? generation.error!} onClose={() => {setLoadError(null); generation.clearError();}} />}
         <div className="workspace-grid">
-          <ScriptEditor text={text} onChange={setText} />
+          <ScriptEditor
+            text={text}
+            onChange={setText}
+            storyboardSegments={storyboardSegments}
+            onStoryboardSegments={setStoryboardSegments}
+          />
           <aside className="control-panel">
             <VoiceControls
               languages={config.languages} voices={config.voices} language={language} gender={gender}
@@ -115,20 +129,23 @@ export function App() {
               onLanguage={chooseLanguage} onGender={chooseGender} onPrimary={choosePrimary} onSecondary={setSecondary}
               onBlendEnabled={setBlendEnabled} onBlendRatio={setBlendRatio}
             />
-            <ExpressionControls presets={config.presets} selected={preset} values={expression} custom={custom} onPreset={applyPreset} onValue={updateExpression} />
+            <ExpressionControls
+              presets={config.presets} selected={preset} values={expression} pauseMs={pauseMs} custom={custom}
+              onPreset={applyPreset} onValue={updateExpression} onPauseMs={updatePauseMs}
+            />
             <OutputControls formats={config.formats} format={format} normalize={normalize} onFormat={setFormat} onNormalize={setNormalize} />
           </aside>
         </div>
         <GenerateBar
-          disabled={!text.trim() || !primary}
+          disabled={!speechText.trim() || !primary}
           running={generation.isRunning}
           phase={generation.job?.phase}
           progress={generation.job?.progress}
           onCancel={generation.cancel}
           onGenerate={() => generation.generate({
-            text, language, primary_voice: primary,
+            text: speechText, segments: storyboardSegments ?? undefined, language, primary_voice: primary,
             secondary_voice: blendEnabled ? secondary : null,
-            blend_ratio: blendRatio, preset, expression, output_format: format, normalize,
+            blend_ratio: blendRatio, preset, expression, pause_ms: pauseMs, output_format: format, normalize,
           })}
         />
         {generation.job?.state === "complete" ? (

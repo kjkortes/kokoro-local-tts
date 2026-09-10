@@ -14,5 +14,6 @@ frontend/vite.config.d.ts
 runtime/
 *.wav
 *.mp3
+!frontend/public/voice-samples/*.mp3
 *.flac
 *.ogg

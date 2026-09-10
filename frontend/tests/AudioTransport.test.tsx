@@ -20,16 +20,53 @@ const result: JobResponse = {
     {text: "Hello there.", start: 0, end: 2.5, paragraph_end: true},
     {text: "This is the whole transcript.", start: 2.72, end: 5.2, paragraph_end: true},
   ],
+  words: [
+    {text: "Hello", start: 0.08, end: 0.46},
+    {text: "there.", start: 0.52, end: 0.91},
+    {text: "This", start: 2.8, end: 3.07},
+    {text: "is", start: 3.12, end: 3.24},
+    {text: "the", start: 3.29, end: 3.46},
+    {text: "whole", start: 3.51, end: 3.88},
+    {text: "transcript.", start: 3.94, end: 4.61},
+  ],
 };
 
 it("keeps legacy completed jobs playable when transcript fields are absent", () => {
   vi.stubGlobal("fetch", vi.fn(async () => new Response(new ArrayBuffer(8))));
-  const {segments: _segments, transcript: _transcript, ...legacyResult} = result;
+  const {segments: _segments, transcript: _transcript, words: _words, ...legacyResult} = result;
 
   render(<AudioTransport result={legacyResult as JobResponse} />);
 
   expect(screen.getByRole("region", {name: "Generated audio"})).toBeVisible();
   expect(screen.queryByRole("region", {name: "Timestamped transcript"})).not.toBeInTheDocument();
+});
+
+it("switches from segment timestamps to aligned word timestamps", async () => {
+  vi.stubGlobal("fetch", vi.fn(async () => new Response(new ArrayBuffer(8))));
+  const user = userEvent.setup();
+  const {container} = render(<AudioTransport result={result} />);
+
+  expect(screen.getByRole("button", {name: "Segment timestamps"})).toHaveAttribute("aria-pressed", "true");
+  await user.click(screen.getByRole("button", {name: "Word timestamps"}));
+
+  expect(screen.getByRole("button", {name: "Word timestamps"})).toHaveAttribute("aria-pressed", "true");
+  const word = screen.getByRole("button", {name: "Seek to word at 0:03.9: transcript."});
+  expect(screen.getByText("0:03.9 — 0:04.6")).toBeVisible();
+  await user.click(word);
+  expect(container.querySelector("audio")?.currentTime).toBe(3.94);
+});
+
+it("falls back to segments when a later result has no aligned words", async () => {
+  vi.stubGlobal("fetch", vi.fn(async () => new Response(new ArrayBuffer(8))));
+  const user = userEvent.setup();
+  const {rerender} = render(<AudioTransport result={result} />);
+  await user.click(screen.getByRole("button", {name: "Word timestamps"}));
+
+  rerender(<AudioTransport result={{...result, id: "job-2", words: []}} />);
+
+  expect(screen.queryByRole("button", {name: "Word timestamps"})).not.toBeInTheDocument();
+  expect(screen.getByText("Hello there.")).toBeVisible();
+  expect(screen.getByText("0:00.0 — 0:02.5")).toBeVisible();
 });
 
 it("makes the completed result playable and downloadable without autoplay", async () => {
@@ -136,6 +173,21 @@ it("copies the full transcript with a timestamp range on every segment", async (
   );
 });
 
+it("copies one aligned timestamp range per word in word mode", async () => {
+  vi.stubGlobal("fetch", vi.fn(async () => new Response(new ArrayBuffer(8))));
+  const user = userEvent.setup();
+  render(<AudioTransport result={result} />);
+
+  await user.click(screen.getByRole("button", {name: "Word timestamps"}));
+  await user.click(screen.getByRole("button", {name: "Copy transcript"}));
+
+  expect(await navigator.clipboard.readText()).toBe(
+    "[0:00.0 — 0:00.4] Hello\n[0:00.5 — 0:00.9] there.\n[0:02.8 — 0:03.0] This\n"
+      + "[0:03.1 — 0:03.2] is\n[0:03.2 — 0:03.4] the\n[0:03.5 — 0:03.8] whole\n"
+      + "[0:03.9 — 0:04.6] transcript.",
+  );
+});
+
 it("copies the displayed JSON with numeric start and end timestamps", async () => {
   vi.stubGlobal("fetch", vi.fn(async () => new Response(new ArrayBuffer(8))));
   const user = userEvent.setup();
@@ -148,6 +200,26 @@ it("copies the displayed JSON with numeric start and end timestamps", async () =
     {start: 0, end: 2.5, text: "Hello there."},
     {start: 2.72, end: 5.2, text: "This is the whole transcript."},
   ]);
+});
+
+it("serializes aligned words as JSON in word mode", async () => {
+  vi.stubGlobal("fetch", vi.fn(async () => new Response(new ArrayBuffer(8))));
+  const user = userEvent.setup();
+  render(<AudioTransport result={result} />);
+
+  await user.click(screen.getByRole("button", {name: "Word timestamps"}));
+  await user.click(screen.getByRole("button", {name: "JSON view"}));
+
+  const expected = [
+    {start: 0.08, end: 0.46, text: "Hello"},
+    {start: 0.52, end: 0.91, text: "there."},
+    {start: 2.8, end: 3.07, text: "This"},
+    {start: 3.12, end: 3.24, text: "is"},
+    {start: 3.29, end: 3.46, text: "the"},
+    {start: 3.51, end: 3.88, text: "whole"},
+    {start: 3.94, end: 4.61, text: "transcript."},
+  ];
+  expect(JSON.parse(screen.getByLabelText("Timescript JSON").textContent ?? "")).toEqual(expected);
 });
 
 it("downloads the readable timestamped transcript as a text file", () => {
@@ -178,6 +250,21 @@ it("downloads the selected JSON timescript as a JSON file", async () => {
     {start: 0, end: 2.5, text: "Hello there."},
     {start: 2.72, end: 5.2, text: "This is the whole transcript."},
   ]);
+});
+
+it("labels word-level transcript downloads unambiguously", async () => {
+  vi.stubGlobal("fetch", vi.fn(async () => new Response(new ArrayBuffer(8))));
+  const user = userEvent.setup();
+  render(<AudioTransport result={result} />);
+
+  await user.click(screen.getByRole("button", {name: "Word timestamps"}));
+  expect(screen.getByRole("link", {name: "Download transcript"})).toHaveAttribute(
+    "download", "hello-word-transcript.txt",
+  );
+  await user.click(screen.getByRole("button", {name: "JSON view"}));
+  expect(screen.getByRole("link", {name: "Download JSON"})).toHaveAttribute(
+    "download", "hello-word-timescript.json",
+  );
 });
 
 it("clears stale copy feedback when the timescript view changes", async () => {

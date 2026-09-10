@@ -1,6 +1,6 @@
 # Kokoro Local TTS
 
-A private, local web workbench for turning scripts into speech with Kokoro 82M. It supports short lines and long narration, all 54 Kokoro v1.0 voices, nine language/accent groups, transparent expression presets, voice blending, a waveform player, and WAV/MP3/FLAC/OGG downloads.
+A private, local web workbench for turning scripts into speech with Kokoro 82M. It supports short lines and long narration, all 54 Kokoro v1.0 voices, nine language/accent groups, transparent expression presets, voice blending, timestamped transcripts, a waveform player, and WAV/MP3/FLAC/OGG downloads.
 
 Nothing in a script is sent to a cloud API. The first launch downloads Kokoro's open model files from Hugging Face; later launches reuse the local cache and can work offline.
 
@@ -54,12 +54,15 @@ The first start can take several minutes while Kokoro downloads and loads. The h
 
 ## Controls
 
+- **Markdown storyboards** can be pasted directly or uploaded from `.md`, `.markdown`, or `.txt` files. Choose any table column for speech; every non-empty cell remains a read-only, timestamped segment matching its source row.
 - **Language and gender** filter the official voice catalog; gender is voice metadata, not a model setting.
+- **Voice previews** play an included, language-appropriate sample instantly for every voice without running synthesis.
 - **Voice blend** combines two voices from the same language with a visible A/B ratio.
 - **Expression** offers Neutral, Warm, Calm, Bright, Serious, and Dramatic. These are deterministic bundles of synthesis speed, pitch, tempo, and sentence pauses—not a claimed Kokoro emotion parameter.
 - **Fine-tune delivery** exposes those values directly, plus output volume.
 - **Output** supports WAV, MP3, FLAC, and OGG at Kokoro's native 24 kHz, with optional loudness normalization.
 - **Long scripts** are split at paragraphs and sentence boundaries, synthesized in sequence, and joined with controlled pauses. Progress and cancellation remain available during generation.
+- **Timestamped transcripts** can be viewed, copied, or downloaded as readable text or JSON. American and British English voices also provide seekable word-level timestamps derived directly from Kokoro's synthesis durations; other languages retain segment-level timestamps.
 
 Generated files live under `runtime/audio/` and are pruned after 24 hours when the app starts. Download anything you want to keep.
 

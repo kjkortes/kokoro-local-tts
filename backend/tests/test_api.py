@@ -5,7 +5,7 @@ import numpy as np
 from fastapi.testclient import TestClient
 
 from kokoro_app.app import _safe_load, create_app
-from kokoro_app.engine import EngineStatus
+from kokoro_app.engine import AlignedWord, EngineStatus, SynthesisResult
 from kokoro_app.jobs import JobManager
 
 
@@ -13,8 +13,11 @@ class FakeEngine:
     def status(self) -> EngineStatus:
         return EngineStatus("ready")
 
-    def synthesize(self, *args, **kwargs) -> np.ndarray:
-        return np.ones(1200, dtype=np.float32)
+    def synthesize(self, *args, **kwargs) -> SynthesisResult:
+        return SynthesisResult(
+            np.ones(1200, dtype=np.float32),
+            (AlignedWord(str(args[0]), 0.01, 0.04),),
+        )
 
 
 def fake_encode(pcm, destination: Path, *args, **kwargs) -> None:
@@ -35,6 +38,7 @@ def test_config_exposes_catalog_presets_formats_and_bounds(tmp_path: Path) -> No
     assert len(body["voices"]) == 54
     assert set(body["formats"]) == {"wav", "mp3", "flac", "ogg"}
     assert body["limits"]["speed"] == {"min": 0.5, "max": 2.0}
+    assert body["limits"]["pause_ms"] == {"min": 0.0, "max": 5000.0}
     jobs.shutdown()
 
 
@@ -46,6 +50,22 @@ def test_blank_generation_is_actionable(tmp_path: Path) -> None:
     )
     assert response.status_code == 422
     assert response.json()["error"]["code"] == "invalid_text"
+    jobs.shutdown()
+
+
+def test_generation_rejects_pause_duration_above_five_seconds(tmp_path: Path) -> None:
+    client, jobs = make_client(tmp_path)
+    response = client.post(
+        "/api/jobs",
+        json={
+            "text": "One. Two.",
+            "language": "a",
+            "primary_voice": "af_heart",
+            "pause_ms": 5001,
+        },
+    )
+    assert response.status_code == 422
+    assert response.json()["error"]["code"] == "invalid_request"
     jobs.shutdown()
 
 
@@ -64,6 +84,10 @@ def test_completed_generation_exposes_timestamped_transcript(tmp_path: Path) -> 
         {"text": "One.", "start": 0.0, "end": 0.05, "paragraph_end": False},
         {"text": "Two.", "start": 0.27, "end": 0.32, "paragraph_end": True},
     ]
+    assert body["words"] == [
+        {"text": "One.", "start": 0.01, "end": 0.04},
+        {"text": "Two.", "start": 0.28, "end": 0.31},
+    ]
     jobs.shutdown()
 
 
@@ -80,6 +104,23 @@ def test_completed_generation_preserves_the_full_transcript(tmp_path: Path) -> N
         body = client.get(f"/api/jobs/{created['id']}").json()
 
     assert body["transcript"] == original
+    jobs.shutdown()
+
+
+def test_generation_rejects_storyboard_segments_that_do_not_match_text(tmp_path: Path) -> None:
+    client, jobs = make_client(tmp_path)
+    response = client.post(
+        "/api/jobs",
+        json={
+            "text": "Joined text is different.",
+            "segments": ["First row.", "Second row."],
+            "language": "a",
+            "primary_voice": "af_heart",
+        },
+    )
+
+    assert response.status_code == 422
+    assert response.json()["error"]["code"] == "invalid_request"
     jobs.shutdown()
 
 

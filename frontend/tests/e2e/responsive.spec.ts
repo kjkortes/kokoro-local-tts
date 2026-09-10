@@ -44,3 +44,22 @@ test("mobile controls follow the script-to-output task order", async ({page}) =>
   await expect(page.getByRole("button", {name: "Generate speech"})).toBeEnabled();
 });
 
+test("selected voice preview plays its bundled audio", async ({page}) => {
+  await mockLocalApi(page);
+  await page.goto("/");
+
+  const previewResponse = page.waitForResponse((response) =>
+    response.url().endsWith("/voice-samples/af_heart.mp3") && response.ok()
+  );
+  await page.getByRole("button", {name: "Preview Heart voice"}).click();
+  await previewResponse;
+
+  await expect(page.getByRole("button", {name: "Stop Heart preview"})).toBeVisible();
+  await expect(page.getByText("Heart preview could not be played.")).toHaveCount(0);
+  const media = await page.getByLabel("Voice preview").evaluate((audio: HTMLAudioElement) => ({
+    paused: audio.paused,
+    source: audio.currentSrc,
+  }));
+  expect(media.paused).toBe(false);
+  expect(media.source).toContain("/voice-samples/af_heart.mp3");
+});

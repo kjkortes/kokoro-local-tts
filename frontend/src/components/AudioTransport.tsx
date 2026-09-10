@@ -93,18 +93,24 @@ export function AudioTransport({result}: {result: JobResponse}) {
   const [copyState, setCopyState] = useState<"idle" | "copied" | "failed">("idle");
   const [copyCount, setCopyCount] = useState(0);
   const [transcriptView, setTranscriptView] = useState<"transcript" | "json">("transcript");
+  const [timestampLevel, setTimestampLevel] = useState<"segments" | "words">("segments");
   const transport = useAudioTransport(audioRef, result.duration ?? 0);
   const envelope = useWaveform(result.audio_url);
   const segments = result.segments ?? [];
-  const timescriptJson = JSON.stringify(segments.map(({start, end, text}) => ({start, end, text})), null, 2);
-  const copyContent = transcriptView === "json" ? timescriptJson : formatTimestampedTranscript(segments);
+  const words = result.words ?? [];
+  const activeTimestampLevel = timestampLevel === "words" && words.length > 0 ? "words" : "segments";
+  const timestampItems = activeTimestampLevel === "words" ? words : segments;
+  const timescriptJson = JSON.stringify(timestampItems.map(({start, end, text}) => ({start, end, text})), null, 2);
+  const readableTranscript = formatTimestampedTranscript(timestampItems);
+  const copyContent = transcriptView === "json" ? timescriptJson : readableTranscript;
   const transcriptIsJson = transcriptView === "json";
-  const transcriptDownloadName = `${(result.filename ?? "kokoro-audio").replace(/\.[^.]+$/, "") || "kokoro-audio"}-${transcriptIsJson ? "timescript.json" : "transcript.txt"}`;
+  const granularityPrefix = activeTimestampLevel === "words" ? "word-" : "";
+  const transcriptDownloadName = `${(result.filename ?? "kokoro-audio").replace(/\.[^.]+$/, "") || "kokoro-audio"}-${granularityPrefix}${transcriptIsJson ? "timescript.json" : "transcript.txt"}`;
   const transcriptDownloadUrl = `data:${transcriptIsJson ? "application/json" : "text/plain"};charset=utf-8,${encodeURIComponent(copyContent)}`;
   const progress = transport.duration ? transport.currentTime / transport.duration : 0;
-  const activeSegment = segments.findIndex((segment) => (
-    transport.currentTime >= segment.start
-    && transport.currentTime < segment.end
+  const activeTimestamp = timestampItems.findIndex((item) => (
+    transport.currentTime >= item.start
+    && transport.currentTime < item.end
   ));
 
   useEffect(() => {
@@ -141,6 +147,13 @@ export function AudioTransport({result}: {result: JobResponse}) {
     if (view === transcriptView) return;
     copyAttemptRef.current += 1;
     setTranscriptView(view);
+    setCopyState("idle");
+    setCopyCount(0);
+  };
+  const changeTimestampLevel = (level: "segments" | "words") => {
+    if (level === timestampLevel) return;
+    copyAttemptRef.current += 1;
+    setTimestampLevel(level);
     setCopyState("idle");
     setCopyCount(0);
   };
@@ -185,6 +198,26 @@ export function AudioTransport({result}: {result: JobResponse}) {
         <section className="transcript-panel" aria-label="Timestamped transcript">
           <div className="transcript-heading">
             <h2>Timestamped transcript</h2>
+            {words.length > 0 && (
+              <div className="transcript-view-switch" aria-label="Timestamp granularity">
+                <button
+                  type="button"
+                  aria-label="Segment timestamps"
+                  aria-pressed={activeTimestampLevel === "segments"}
+                  onClick={() => changeTimestampLevel("segments")}
+                >
+                  Segments
+                </button>
+                <button
+                  type="button"
+                  aria-label="Word timestamps"
+                  aria-pressed={activeTimestampLevel === "words"}
+                  onClick={() => changeTimestampLevel("words")}
+                >
+                  Words
+                </button>
+              </div>
+            )}
             <div className="transcript-view-switch" aria-label="Timescript format">
               <button
                 type="button"
@@ -239,16 +272,16 @@ export function AudioTransport({result}: {result: JobResponse}) {
           )}
           {transcriptView === "transcript" ? (
             <ol className="transcript-segments">
-              {segments.map((segment, index) => (
-                <li key={`${segment.start}-${segment.end}`}>
+              {timestampItems.map((item, index) => (
+                <li key={`${item.start}-${item.end}-${index}`}>
                   <button
                     type="button"
-                    aria-label={`Seek to segment at ${formatTimestamp(segment.start)}: ${segment.text}`}
-                    aria-current={activeSegment === index ? "true" : undefined}
-                    onClick={() => transport.seek(segment.start)}
+                    aria-label={`Seek to ${activeTimestampLevel === "words" ? "word" : "segment"} at ${formatTimestamp(item.start)}: ${item.text}`}
+                    aria-current={activeTimestamp === index ? "true" : undefined}
+                    onClick={() => transport.seek(item.start)}
                   >
-                    <time>{formatTimestamp(segment.start)} — {formatTimestamp(segment.end)}</time>
-                    <span>{segment.text}</span>
+                    <time>{formatTimestamp(item.start)} — {formatTimestamp(item.end)}</time>
+                    <span>{item.text}</span>
                   </button>
                 </li>
               ))}

@@ -53,12 +53,14 @@ class ExpressionSettings(BaseModel):
 
 class GenerationRequest(BaseModel):
     text: str = Field(min_length=1, max_length=100_000)
+    segments: list[str] | None = Field(default=None, min_length=1, max_length=10_000)
     language: str = "a"
     primary_voice: str = "af_heart"
     secondary_voice: str | None = None
     blend_ratio: float = Field(default=0.35, ge=0.0, le=1.0)
     preset: Literal["neutral", "warm", "calm", "bright", "serious", "dramatic"] = "neutral"
     expression: ExpressionSettings | None = None
+    pause_ms: int | None = Field(default=None, ge=0, le=5000)
     output_format: OutputFormat = OutputFormat.wav
     normalize: bool = True
 
@@ -68,6 +70,11 @@ class GenerationRequest(BaseModel):
 
         if not self.text.strip():
             raise ValueError("Text must contain something to speak")
+        if self.segments is not None:
+            if any(not segment.strip() for segment in self.segments):
+                raise ValueError("Storyboard segments must contain speech text")
+            if "\n\n".join(self.segments) != self.text:
+                raise ValueError("Storyboard segments must exactly match the submitted text")
         primary = voice_by_id(self.primary_voice)
         if primary is None or primary.language != self.language:
             raise ValueError("Primary voice must match the selected language")
@@ -113,6 +120,12 @@ class TranscriptSegment(BaseModel):
     paragraph_end: bool = False
 
 
+class TranscriptWord(BaseModel):
+    text: str
+    start: float = Field(ge=0.0)
+    end: float = Field(ge=0.0)
+
+
 class JobResponse(BaseModel):
     id: str
     state: JobState
@@ -124,6 +137,7 @@ class JobResponse(BaseModel):
     filename: str | None = None
     duration: float | None = None
     segments: list[TranscriptSegment] = Field(default_factory=list)
+    words: list[TranscriptWord] = Field(default_factory=list)
     transcript: str | None = None
 
 

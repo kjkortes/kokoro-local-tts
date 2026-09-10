@@ -41,6 +41,7 @@ def _job_response(record: JobRecord) -> JobResponse:
         filename=record.filename,
         duration=record.duration,
         segments=record.segments,
+        words=record.words,
         transcript=record.request.text if complete else None,
     )
 
@@ -113,6 +114,7 @@ def create_app(
                 "pitch": {"min": -4.0, "max": 4.0},
                 "tempo": {"min": 0.75, "max": 1.25},
                 "pause_scale": {"min": 0.5, "max": 2.0},
+                "pause_ms": {"min": 0.0, "max": 5000.0},
                 "volume": {"min": 0.0, "max": 1.5},
             },
         )
@@ -153,6 +155,12 @@ def create_app(
 
     if dist.joinpath("assets").is_dir():
         application.mount("/assets", StaticFiles(directory=dist / "assets"), name="assets")
+    if dist.joinpath("voice-samples").is_dir():
+        application.mount(
+            "/voice-samples",
+            StaticFiles(directory=dist / "voice-samples"),
+            name="voice-samples",
+        )
 
     @application.get("/{path:path}", include_in_schema=False)
     def spa_fallback(path: str):

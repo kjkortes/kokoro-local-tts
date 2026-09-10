@@ -1,4 +1,4 @@
-import {render, screen, waitFor} from "@testing-library/react";
+import {act, fireEvent, render, screen, waitFor} from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 
 import {App} from "../src/App";
@@ -12,6 +12,7 @@ const config: AppConfig = {
   ],
   voices: [
     {id: "af_heart", name: "Heart", language: "a", gender: "female"},
+    {id: "af_bella", name: "Bella", language: "a", gender: "female"},
     {id: "am_adam", name: "Adam", language: "a", gender: "male"},
     {id: "bf_emma", name: "Emma", language: "b", gender: "female"},
     {id: "bm_george", name: "George", language: "b", gender: "male"},
@@ -57,6 +58,126 @@ it("filters voices by language and gender", async () => {
   expect(screen.queryByRole("option", {name: "George"})).not.toBeInTheDocument();
 });
 
+it("plays the bundled preview for the selected primary voice", async () => {
+  const calls = stubApi();
+  const play = vi.spyOn(HTMLMediaElement.prototype, "play").mockResolvedValue();
+  vi.spyOn(HTMLMediaElement.prototype, "pause").mockImplementation(() => undefined);
+  const user = userEvent.setup();
+  render(<App />);
+
+  await screen.findByLabelText("Primary voice");
+  await user.click(screen.getByRole("button", {name: "Preview Heart voice"}));
+
+  expect(screen.getByLabelText("Voice preview")).toHaveAttribute(
+    "src",
+    "/voice-samples/af_heart.mp3",
+  );
+  expect(screen.getByRole("button", {name: "Stop Heart preview"})).toBeVisible();
+  expect(play).toHaveBeenCalledOnce();
+  expect(calls.some(({init}) => init?.method === "POST")).toBe(false);
+});
+
+it("starts preview playback directly from the button activation", async () => {
+  stubApi();
+  let buttonLabelWhenPlaybackStarted = "";
+  vi.spyOn(HTMLMediaElement.prototype, "play").mockImplementation(() => {
+    buttonLabelWhenPlaybackStarted = screen.getByRole("button", {name: /Heart/}).getAttribute("aria-label") ?? "";
+    return Promise.resolve();
+  });
+  vi.spyOn(HTMLMediaElement.prototype, "pause").mockImplementation(() => undefined);
+  const user = userEvent.setup();
+  render(<App />);
+
+  await screen.findByLabelText("Primary voice");
+  await user.click(screen.getByRole("button", {name: "Preview Heart voice"}));
+
+  expect(buttonLabelWhenPlaybackStarted).toBe("Preview Heart voice");
+});
+
+it("previews the selected second voice when blending", async () => {
+  stubApi();
+  vi.spyOn(HTMLMediaElement.prototype, "play").mockResolvedValue();
+  vi.spyOn(HTMLMediaElement.prototype, "pause").mockImplementation(() => undefined);
+  const user = userEvent.setup();
+  render(<App />);
+
+  await screen.findByLabelText("Primary voice");
+  await user.click(screen.getByRole("checkbox", {name: /Blend a second voice/}));
+  await user.click(screen.getByRole("button", {name: "Preview Bella voice"}));
+
+  expect(screen.getByLabelText("Voice preview")).toHaveAttribute(
+    "src",
+    "/voice-samples/af_bella.mp3",
+  );
+  expect(screen.getByRole("button", {name: "Stop Bella preview"})).toBeVisible();
+});
+
+it("stops a preview when its selected voice changes", async () => {
+  stubApi();
+  vi.spyOn(HTMLMediaElement.prototype, "play").mockResolvedValue();
+  vi.spyOn(HTMLMediaElement.prototype, "pause").mockImplementation(() => undefined);
+  const user = userEvent.setup();
+  render(<App />);
+
+  await screen.findByLabelText("Primary voice");
+  await user.click(screen.getByRole("button", {name: "Preview Heart voice"}));
+  await user.selectOptions(screen.getByLabelText("Primary voice"), "am_adam");
+
+  expect(screen.getByLabelText("Voice preview")).not.toHaveAttribute("src");
+  expect(screen.getByRole("button", {name: "Preview Adam voice"})).toBeVisible();
+});
+
+it("reports an unavailable voice preview and resets its control", async () => {
+  stubApi();
+  vi.spyOn(HTMLMediaElement.prototype, "play").mockResolvedValue();
+  vi.spyOn(HTMLMediaElement.prototype, "pause").mockImplementation(() => undefined);
+  const user = userEvent.setup();
+  render(<App />);
+
+  await screen.findByLabelText("Primary voice");
+  await user.click(screen.getByRole("button", {name: "Preview Heart voice"}));
+  fireEvent.error(screen.getByLabelText("Voice preview"));
+
+  expect(screen.getByRole("alert")).toHaveTextContent("Heart preview could not be played.");
+  expect(screen.getByRole("button", {name: "Preview Heart voice"})).toBeVisible();
+});
+
+it("clears a preview error when the selected voice changes", async () => {
+  stubApi();
+  vi.spyOn(HTMLMediaElement.prototype, "play").mockResolvedValue();
+  vi.spyOn(HTMLMediaElement.prototype, "pause").mockImplementation(() => undefined);
+  const user = userEvent.setup();
+  render(<App />);
+
+  await screen.findByLabelText("Primary voice");
+  await user.click(screen.getByRole("button", {name: "Preview Heart voice"}));
+  fireEvent.error(screen.getByLabelText("Voice preview"));
+  await user.selectOptions(screen.getByLabelText("Primary voice"), "am_adam");
+
+  expect(screen.queryByRole("alert")).not.toBeInTheDocument();
+});
+
+it("ignores a stale playback rejection after another preview starts", async () => {
+  stubApi();
+  let rejectFirstPlay!: (reason: Error) => void;
+  const firstPlay = new Promise<void>((_, reject) => { rejectFirstPlay = reject; });
+  vi.spyOn(HTMLMediaElement.prototype, "play")
+    .mockReturnValueOnce(firstPlay)
+    .mockResolvedValue(undefined);
+  vi.spyOn(HTMLMediaElement.prototype, "pause").mockImplementation(() => undefined);
+  const user = userEvent.setup();
+  render(<App />);
+
+  await screen.findByLabelText("Primary voice");
+  await user.click(screen.getByRole("checkbox", {name: /Blend a second voice/}));
+  await user.click(screen.getByRole("button", {name: "Preview Heart voice"}));
+  await user.click(screen.getByRole("button", {name: "Preview Bella voice"}));
+  await act(async () => rejectFirstPlay(new Error("The first playback was interrupted.")));
+
+  expect(screen.getByRole("button", {name: "Stop Bella preview"})).toBeVisible();
+  expect(screen.queryByRole("alert")).not.toBeInTheDocument();
+});
+
 it("applies a preset and submits the visible delivery values", async () => {
   const calls = stubApi();
   const user = userEvent.setup();
@@ -72,6 +193,21 @@ it("applies a preset and submits the visible delivery values", async () => {
   expect(body.expression.speed).toBe(.9);
 });
 
+it("submits an exact pause duration entered in milliseconds", async () => {
+  const calls = stubApi();
+  const user = userEvent.setup();
+  render(<App />);
+  await screen.findByLabelText("Script");
+  await user.type(screen.getByLabelText("Script"), "One. Two.");
+  await user.click(screen.getByText("Fine-tune delivery"));
+  await user.type(screen.getByLabelText("Pause duration (ms)"), "750");
+  await user.click(screen.getByRole("button", {name: "Generate speech"}));
+  await waitFor(() => expect(calls.some(({init}) => init?.method === "POST")).toBe(true));
+
+  const body = JSON.parse(String(calls.find(({init}) => init?.method === "POST")?.init?.body));
+  expect(body.pause_ms).toBe(750);
+});
+
 it("shows script statistics and disables generation for blank text", async () => {
   stubApi();
   const user = userEvent.setup();
@@ -81,4 +217,58 @@ it("shows script statistics and disables generation for blank text", async () =>
   await user.type(editor, "Three simple words");
   expect(screen.getByText("3 words")).toBeVisible();
   expect(screen.getByRole("button", {name: "Generate speech"})).toBeEnabled();
+});
+
+it("uploads a Markdown storyboard and submits the selected column as read-only row segments", async () => {
+  const calls = stubApi();
+  const user = userEvent.setup();
+  render(<App />);
+  await screen.findByLabelText("Script");
+
+  await user.click(screen.getByRole("button", {name: "Upload storyboard"}));
+  const storyboard = new File([`
+| Beat | Original VO | Visual cue |
+| --- | --- | --- |
+| 1 | First row, exactly. | A kitchen. |
+| 2 | Second row? Yes! | A garden. |
+`], "storyboard.md", {type: "text/markdown"});
+  await user.upload(screen.getByLabelText("Markdown storyboard"), storyboard);
+  await user.selectOptions(await screen.findByLabelText("Speech column"), "1");
+
+  expect(screen.getByText("First row, exactly.")).toBeVisible();
+  expect(screen.getByText("Second row? Yes!")).toBeVisible();
+  expect(screen.queryByRole("textbox", {name: "Script"})).not.toBeInTheDocument();
+  expect(screen.getByText("2 segments")).toBeVisible();
+
+  await user.click(screen.getByRole("button", {name: "Generate speech"}));
+  await waitFor(() => expect(calls.some(({init}) => init?.method === "POST")).toBe(true));
+  const body = JSON.parse(String(calls.find(({init}) => init?.method === "POST")?.init?.body));
+  expect(body.text).toBe("First row, exactly.\n\nSecond row? Yes!");
+  expect(body.segments).toEqual(["First row, exactly.", "Second row? Yes!"]);
+});
+
+it("pastes a Markdown storyboard and submits the selected column as row segments", async () => {
+  const calls = stubApi();
+  const user = userEvent.setup();
+  render(<App />);
+  await screen.findByLabelText("Script");
+
+  await user.click(screen.getByRole("button", {name: "Upload storyboard"}));
+  await user.type(screen.getByLabelText("Paste Markdown storyboard"), `
+| Beat | VO script | Visual cue |
+| --- | --- | --- |
+| 1 | Pasted first row. | A kitchen. |
+| 2 | Pasted second row! | A garden. |
+`);
+  await user.click(screen.getByRole("button", {name: "Use pasted table"}));
+  await user.selectOptions(screen.getByLabelText("Speech column"), "1");
+
+  expect(screen.getByText("Pasted first row.")).toBeVisible();
+  expect(screen.getByText("Pasted second row!")).toBeVisible();
+  expect(screen.getByText("2 segments")).toBeVisible();
+
+  await user.click(screen.getByRole("button", {name: "Generate speech"}));
+  await waitFor(() => expect(calls.some(({init}) => init?.method === "POST")).toBe(true));
+  const body = JSON.parse(String(calls.find(({init}) => init?.method === "POST")?.init?.body));
+  expect(body.segments).toEqual(["Pasted first row.", "Pasted second row!"]);
 });

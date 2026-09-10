@@ -58,12 +58,14 @@ export interface StatusResponse {
 
 export interface GenerationRequest {
   text: string;
+  segments?: string[];
   language: string;
   primary_voice: string;
   secondary_voice: string | null;
   blend_ratio: number;
   preset: "neutral" | "warm" | "calm" | "bright" | "serious" | "dramatic";
   expression: ExpressionValues | null;
+  pause_ms?: number | null;
   output_format: OutputFormat;
   normalize: boolean;
 }
@@ -73,6 +75,12 @@ export interface TranscriptSegment {
   start: number;
   end: number;
   paragraph_end?: boolean;
+}
+
+export interface TranscriptWord {
+  text: string;
+  start: number;
+  end: number;
 }
 
 export interface JobResponse {
@@ -86,5 +94,6 @@ export interface JobResponse {
   filename: string | null;
   duration: number | null;
   segments: TranscriptSegment[];
+  words?: TranscriptWord[];
   transcript: string | null;
 }

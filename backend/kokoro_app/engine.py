@@ -7,6 +7,8 @@ from typing import Any
 
 import numpy as np
 
+from kokoro_app.audio import SAMPLE_RATE
+
 
 PipelineFactory = Callable[[str], Any]
 
@@ -16,6 +18,19 @@ class EngineStatus:
     state: str
     device: str = "cpu"
     detail: str | None = None
+
+
+@dataclass(frozen=True)
+class AlignedWord:
+    text: str
+    start: float
+    end: float
+
+
+@dataclass(frozen=True)
+class SynthesisResult:
+    audio: np.ndarray
+    words: tuple[AlignedWord, ...] = ()
 
 
 def _default_pipeline_factory(language: str) -> Any:
@@ -82,21 +97,51 @@ class KokoroEngine:
         secondary_voice: str | None,
         blend_ratio: float,
         speed: float,
-    ) -> np.ndarray:
+    ) -> SynthesisResult:
         with self._lock:
             pipeline = self._get_pipeline(language)
             voice = self._voice_spec(pipeline, primary_voice, secondary_voice, blend_ratio)
             pieces: list[np.ndarray] = []
+            words: list[AlignedWord] = []
+            sample_offset = 0
+            pending_prefix = ""
             try:
                 for result in pipeline(text, voice=voice, speed=speed, split_pattern=None):
                     audio = getattr(result, "audio", None)
                     if audio is None:
                         audio = result[2]
-                    pieces.append(_as_numpy(audio))
+                    piece = _as_numpy(audio)
+                    tokens = getattr(result, "tokens", None) if language in {"a", "b"} else None
+                    preceded_by_space = True
+                    for token in tokens or ():
+                        token_text = str(getattr(token, "text", ""))
+                        start = getattr(token, "start_ts", None)
+                        end = getattr(token, "end_ts", None)
+                        if any(character.isalnum() for character in token_text):
+                            if start is not None and end is not None:
+                                words.append(AlignedWord(
+                                    text=pending_prefix + token_text,
+                                    start=round(sample_offset / SAMPLE_RATE + float(start), 6),
+                                    end=round(sample_offset / SAMPLE_RATE + float(end), 6),
+                                ))
+                            pending_prefix = ""
+                        elif preceded_by_space or not words:
+                            pending_prefix += token_text
+                        else:
+                            previous = words[-1]
+                            words[-1] = AlignedWord(
+                                text=previous.text + token_text,
+                                start=previous.start,
+                                end=previous.end,
+                            )
+                        preceded_by_space = bool(getattr(token, "whitespace", ""))
+                    pieces.append(piece)
+                    sample_offset += len(piece)
             except Exception as error:
                 self._state = "error"
                 self._detail = str(error)
                 raise
             self._state = "ready"
             self._detail = None
-            return np.concatenate(pieces) if pieces else np.array([], dtype=np.float32)
+            audio = np.concatenate(pieces) if pieces else np.array([], dtype=np.float32)
+            return SynthesisResult(audio=audio, words=tuple(words))
