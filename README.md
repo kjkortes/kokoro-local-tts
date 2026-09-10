@@ -38,6 +38,19 @@ To choose another port:
 KOKORO_PORT=8080 ./run.sh
 ```
 
+To stop a Kokoro instance running in the background:
+
+```bash
+./run.sh --stop
+```
+
+If Kokoro is running in the active terminal, press `Ctrl+C` instead.
+For an instance started on another port, include that port when stopping it:
+
+```bash
+KOKORO_PORT=8080 ./run.sh --stop
+```
+
 To restore localhost-only access for a session:
 
 ```bash
@@ -103,6 +116,7 @@ KOKORO_SMOKE=1 uv run --extra test pytest backend/tests/test_inference_smoke.py 
 
 ## Troubleshooting
 
+- **Port 8000 is already in use:** `run.sh` now detects an existing Kokoro instance and prints its address instead of starting a duplicate. Stop it with `./run.sh --stop`, or use `KOKORO_PORT=8080 ./run.sh` to start another instance. To inspect the listener manually, install the required tools with `sudo apt-get install -y curl iproute2 lsof procps util-linux`, then run `lsof -nP -iTCP:8000 -sTCP:LISTEN` (or `sudo ss -ltnp 'sport = :8000'`). Note the PID, inspect it with `ps -fp <PID>`, and stop it gracefully with `kill <PID>`. Only kill a process after confirming it belongs to you; avoid `kill -9` unless an ordinary stop fails.
 - **Phonemizer fails to load:** Kokoro installs a bundled `espeak-ng` loader. If your Linux distribution cannot use it, install the system fallback with `sudo apt-get install -y espeak-ng`.
 - **FFmpeg is missing or cannot encode a format:** run `sudo apt-get install -y ffmpeg` and verify `ffmpeg -version`.
 - **The model does not load:** make sure the first run has internet access and enough free disk space, then restart. Hugging Face assets remain in the normal local cache.
