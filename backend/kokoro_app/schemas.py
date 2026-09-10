@@ -61,7 +61,6 @@ class GenerationRequest(BaseModel):
     preset: Literal["neutral", "warm", "calm", "bright", "serious", "dramatic"] = "neutral"
     expression: ExpressionSettings | None = None
     pause_ms: int | None = Field(default=None, ge=0, le=5000)
-    comma_pause_ms: int = Field(default=100, ge=0, le=1000)
     output_format: OutputFormat = OutputFormat.wav
     normalize: bool = True
 

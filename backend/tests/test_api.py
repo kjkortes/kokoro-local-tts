@@ -39,8 +39,8 @@ def test_config_exposes_catalog_presets_formats_and_bounds(tmp_path: Path) -> No
     assert set(body["formats"]) == {"wav", "mp3", "flac", "ogg"}
     assert body["limits"]["speed"] == {"min": 0.5, "max": 2.0}
     assert body["limits"]["pause_ms"] == {"min": 0.0, "max": 5000.0}
-    assert body["limits"]["comma_pause_ms"] == {"min": 0.0, "max": 1000.0}
-    assert body["defaults"]["comma_pause_ms"] == 100
+    assert "comma_pause_ms" not in body["limits"]
+    assert "comma_pause_ms" not in body["defaults"]
     jobs.shutdown()
 
 
@@ -64,23 +64,6 @@ def test_generation_rejects_pause_duration_above_five_seconds(tmp_path: Path) ->
             "language": "a",
             "primary_voice": "af_heart",
             "pause_ms": 5001,
-        },
-    )
-    assert response.status_code == 422
-    assert response.json()["error"]["code"] == "invalid_request"
-    jobs.shutdown()
-
-
-def test_generation_rejects_comma_pause_above_one_second(tmp_path: Path) -> None:
-    client, jobs = make_client(tmp_path)
-    response = client.post(
-        "/api/jobs",
-        json={
-            "text": "One,\n\nTwo.",
-            "segments": ["One,", "Two."],
-            "language": "a",
-            "primary_voice": "af_heart",
-            "comma_pause_ms": 1001,
         },
     )
     assert response.status_code == 422

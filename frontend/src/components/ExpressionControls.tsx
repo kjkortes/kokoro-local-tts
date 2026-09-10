@@ -6,18 +6,15 @@ interface Props {
   selected: string;
   values: Required<ExpressionValues>;
   pauseMs: number | null;
-  commaPauseMs: number;
   custom: boolean;
   onPreset: (preset: ExpressionPreset) => void;
   onValue: (name: keyof ExpressionValues, value: number) => void;
   onPauseMs: (value: number | null) => void;
-  onCommaPauseMs: (value: number) => void;
 }
 
 const format = (value: number, suffix = "×") => `${value.toFixed(2).replace(/\.00$/, "")}${suffix}`;
-const clampCommaPause = (value: number) => Math.min(1000, Math.max(0, Math.round(value)));
 
-export function ExpressionControls({presets, selected, values, pauseMs, commaPauseMs, custom, onPreset, onValue, onPauseMs, onCommaPauseMs}: Props) {
+export function ExpressionControls({presets, selected, values, pauseMs, custom, onPreset, onValue, onPauseMs}: Props) {
   const active = presets.find((item) => item.id === selected) ?? presets[0];
   return (
     <section className="control-section expression-section" aria-labelledby="expression-heading">
@@ -51,20 +48,6 @@ export function ExpressionControls({presets, selected, values, pauseMs, commaPau
               onChange={(event) => onPauseMs(event.target.value === "" ? null : Number(event.target.value))}
             />
             <small id="pause-duration-help">Leave blank to use the expression preset’s timing.</small>
-          </div>
-          <div className="number-field">
-            <div><label htmlFor="comma-pause-duration">Comma continuation (ms)</label><output>{commaPauseMs} ms</output></div>
-            <input
-              id="comma-pause-duration"
-              type="number"
-              min={0}
-              max={1000}
-              step={10}
-              value={commaPauseMs}
-              aria-describedby="comma-pause-duration-help"
-              onChange={(event) => onCommaPauseMs(clampCommaPause(Number(event.target.value)))}
-            />
-            <small id="comma-pause-duration-help">Overrides the general pause between storyboard rows when the earlier row ends with a comma.</small>
           </div>
           <Range label="Volume" value={values.volume} min={0} max={1.5} step={.05} output={format(values.volume)} onChange={(v) => onValue("volume", v)} />
         </div>

@@ -12,7 +12,6 @@ const request: GenerationRequest = {
   blend_ratio: 0.35,
   preset: "neutral",
   expression: null,
-  comma_pause_ms: 100,
   output_format: "wav",
   normalize: true,
 };

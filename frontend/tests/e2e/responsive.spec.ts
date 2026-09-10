@@ -12,8 +12,8 @@ const config = {
     {id: "calm", name: "Calm", description: "Measured delivery with softer pitch and longer pauses.", speed: .9, pitch: -.7, tempo: .94, pause_scale: 1.25},
   ],
   formats: ["wav", "mp3", "flac", "ogg"],
-  defaults: {language: "a", voice: "af_heart", preset: "neutral", format: "wav", comma_pause_ms: 100},
-  limits: {speed: {min: .5, max: 2}, pitch: {min: -4, max: 4}, tempo: {min: .75, max: 1.25}, pause_scale: {min: .5, max: 2}, volume: {min: 0, max: 1.5}, pause_ms: {min: 0, max: 5000}, comma_pause_ms: {min: 0, max: 1000}},
+  defaults: {language: "a", voice: "af_heart", preset: "neutral", format: "wav"},
+  limits: {speed: {min: .5, max: 2}, pitch: {min: -4, max: 4}, tempo: {min: .75, max: 1.25}, pause_scale: {min: .5, max: 2}, volume: {min: 0, max: 1.5}, pause_ms: {min: 0, max: 5000}},
 };
 
 async function mockLocalApi(page: import("@playwright/test").Page) {
