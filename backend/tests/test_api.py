@@ -109,6 +109,32 @@ def test_completed_generation_preserves_the_full_transcript(tmp_path: Path) -> N
     jobs.shutdown()
 
 
+def test_storyboard_generation_accepts_obsolete_comma_pause_ms(tmp_path: Path) -> None:
+    client, jobs = make_client(tmp_path)
+    rows = ["The thought begins,", "and continues naturally."]
+    created_response = client.post(
+        "/api/jobs",
+        json={
+            "text": "\n\n".join(rows),
+            "segments": rows,
+            "language": "a",
+            "primary_voice": "af_heart",
+            "comma_pause_ms": 100,
+        },
+    )
+
+    assert created_response.status_code == 202
+    created = created_response.json()
+    deadline = time.time() + 2
+    body = created
+    while body["state"] != "complete" and time.time() < deadline:
+        body = client.get(f"/api/jobs/{created['id']}").json()
+
+    assert body["state"] == "complete"
+    assert [segment["text"] for segment in body["segments"]] == rows
+    jobs.shutdown()
+
+
 def test_generation_rejects_storyboard_segments_that_do_not_match_text(tmp_path: Path) -> None:
     client, jobs = make_client(tmp_path)
     response = client.post(

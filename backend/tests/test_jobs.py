@@ -138,17 +138,15 @@ def test_storyboard_rows_are_synthesized_as_one_continuous_narration(tmp_path: P
 
     engine = RecordingEngine()
     manager = JobManager(engine, tmp_path, encoder=fake_encode)
+    rows = ["The  thought begins,", "and\ncontinues naturally."]
     record = manager.create(GenerationRequest(
-        text="The thought begins,\n\nand continues naturally.",
-        segments=["The thought begins,", "and continues naturally."],
+        text="\n\n".join(rows),
+        segments=rows,
     ))
     wait_for(manager, record.id, JobState.complete)
 
     assert engine.calls == ["The thought begins, and continues naturally."]
-    assert [segment["text"] for segment in manager.get(record.id).segments] == [
-        "The thought begins,",
-        "and continues naturally.",
-    ]
+    assert [segment["text"] for segment in manager.get(record.id).segments] == rows
     manager.shutdown()
 
 
@@ -166,6 +164,8 @@ def test_storyboard_rows_keep_monotonic_timestamps_inside_shared_audio(tmp_path:
     first, second = manager.get(record.id).segments
 
     assert first["start"] == 0.0
+    assert first["end"] == 0.32
+    assert second["start"] == 0.34
     assert 0 < first["end"] <= second["start"] < second["end"]
     assert second["end"] == pytest.approx(1.0)
     manager.shutdown()
