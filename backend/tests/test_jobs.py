@@ -125,6 +125,50 @@ def test_storyboard_rows_remain_exact_segments_when_a_row_uses_multiple_chunks(t
     manager.shutdown()
 
 
+def test_storyboard_comma_boundary_uses_short_continuation_pause(tmp_path: Path) -> None:
+    manager = JobManager(FakeEngine(), tmp_path, encoder=fake_encode)
+    record = manager.create(GenerationRequest(
+        text="The thought begins,\n\nand continues naturally.",
+        segments=["The thought begins,", "and continues naturally."],
+    ))
+    wait_for(manager, record.id, JobState.complete)
+
+    finished = manager.get(record.id)
+    assert finished.segments[0]["end"] == pytest.approx(0.05)
+    assert finished.segments[1]["start"] == pytest.approx(0.15)
+    manager.shutdown()
+
+
+def test_storyboard_custom_comma_pause_overrides_general_pause(tmp_path: Path) -> None:
+    manager = JobManager(FakeEngine(), tmp_path, encoder=fake_encode)
+    record = manager.create(GenerationRequest(
+        text="The thought begins,\n\nand continues.\n\nA new sentence.",
+        segments=["The thought begins,", "and continues.", "A new sentence."],
+        comma_pause_ms=40,
+        pause_ms=750,
+    ))
+    wait_for(manager, record.id, JobState.complete)
+
+    finished = manager.get(record.id)
+    assert finished.segments[1]["start"] == pytest.approx(0.09)
+    assert finished.segments[2]["start"] == pytest.approx(0.89)
+    manager.shutdown()
+
+
+@pytest.mark.parametrize("comma", ["，", "、"])
+def test_storyboard_multilingual_commas_use_continuation_pause(tmp_path: Path, comma: str) -> None:
+    manager = JobManager(FakeEngine(), tmp_path, encoder=fake_encode)
+    first = f"First clause{comma}"
+    record = manager.create(GenerationRequest(
+        text=f"{first}\n\nsecond clause.",
+        segments=[first, "second clause."],
+    ))
+    wait_for(manager, record.id, JobState.complete)
+
+    assert manager.get(record.id).segments[1]["start"] == pytest.approx(0.15)
+    manager.shutdown()
+
+
 def test_cancelled_queued_job_does_not_expose_partial_audio(tmp_path: Path) -> None:
     class SlowEngine(FakeEngine):
         def synthesize(self, *args, **kwargs) -> SynthesisResult:

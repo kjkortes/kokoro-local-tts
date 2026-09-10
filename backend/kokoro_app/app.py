@@ -108,13 +108,20 @@ def create_app(
                 for item in PRESETS.values()
             ],
             formats=list(OutputFormat),
-            defaults={"language": "a", "voice": "af_heart", "preset": "neutral", "format": "wav"},
+            defaults={
+                "language": "a",
+                "voice": "af_heart",
+                "preset": "neutral",
+                "format": "wav",
+                "comma_pause_ms": 100,
+            },
             limits={
                 "speed": {"min": 0.5, "max": 2.0},
                 "pitch": {"min": -4.0, "max": 4.0},
                 "tempo": {"min": 0.75, "max": 1.25},
                 "pause_scale": {"min": 0.5, "max": 2.0},
                 "pause_ms": {"min": 0.0, "max": 5000.0},
+                "comma_pause_ms": {"min": 0.0, "max": 1000.0},
                 "volume": {"min": 0.0, "max": 1.5},
             },
         )

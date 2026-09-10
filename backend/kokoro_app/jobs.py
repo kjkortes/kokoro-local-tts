@@ -17,6 +17,7 @@ from kokoro_app.schemas import GenerationRequest, JobState
 
 
 Encoder = Callable[..., None]
+_CONTINUATION_COMMAS = (",", "，", "、")
 
 
 @dataclass
@@ -154,10 +155,22 @@ class JobManager:
                 )
                 generated.append(synthesis.audio)
                 aligned_words.append(synthesis.words)
+                is_storyboard_comma_boundary = (
+                    record.request.segments is not None
+                    and index < len(chunks) - 1
+                    and chunk_segment_indexes[index] != chunk_segment_indexes[index + 1]
+                    and record.request.segments[chunk_segment_indexes[index]].rstrip().endswith(
+                        _CONTINUATION_COMMAS
+                    )
+                )
                 pauses.append(
-                    record.request.pause_ms
-                    if record.request.pause_ms is not None
-                    else round(chunk.pause_after_ms * expression.pause_scale)
+                    record.request.comma_pause_ms
+                    if is_storyboard_comma_boundary
+                    else (
+                        record.request.pause_ms
+                        if record.request.pause_ms is not None
+                        else round(chunk.pause_after_ms * expression.pause_scale)
+                    )
                 )
             if self._cancelled(record):
                 return

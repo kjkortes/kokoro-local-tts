@@ -22,10 +22,11 @@ const config: AppConfig = {
     {id: "calm", name: "Calm", description: "Measured and spacious.", speed: .9, pitch: -.7, tempo: .94, pause_scale: 1.25},
   ],
   formats: ["wav", "mp3", "flac", "ogg"],
-  defaults: {language: "a", voice: "af_heart", preset: "neutral", format: "wav"},
+  defaults: {language: "a", voice: "af_heart", preset: "neutral", format: "wav", comma_pause_ms: 100},
   limits: {
     speed: {min: .5, max: 2}, pitch: {min: -4, max: 4}, tempo: {min: .75, max: 1.25},
     pause_scale: {min: .5, max: 2}, volume: {min: 0, max: 1.5},
+    pause_ms: {min: 0, max: 5000}, comma_pause_ms: {min: 0, max: 1000},
   },
 };
 
@@ -206,6 +207,44 @@ it("submits an exact pause duration entered in milliseconds", async () => {
 
   const body = JSON.parse(String(calls.find(({init}) => init?.method === "POST")?.init?.body));
   expect(body.pause_ms).toBe(750);
+});
+
+it("submits the configurable storyboard comma continuation pause", async () => {
+  const calls = stubApi();
+  const user = userEvent.setup();
+  render(<App />);
+  await screen.findByLabelText("Script");
+  await user.type(screen.getByLabelText("Script"), "One, then two.");
+  await user.click(screen.getByText("Fine-tune delivery"));
+
+  const commaPause = screen.getByLabelText("Comma continuation (ms)");
+  expect(commaPause).toHaveValue(100);
+  await user.clear(commaPause);
+  await user.type(commaPause, "60");
+  await user.click(screen.getByRole("button", {name: "Generate speech"}));
+  await waitFor(() => expect(calls.some(({init}) => init?.method === "POST")).toBe(true));
+
+  const body = JSON.parse(String(calls.find(({init}) => init?.method === "POST")?.init?.body));
+  expect(body.comma_pause_ms).toBe(60);
+});
+
+it("clamps a manually entered comma continuation pause to the supported range", async () => {
+  const calls = stubApi();
+  const user = userEvent.setup();
+  render(<App />);
+  await screen.findByLabelText("Script");
+  await user.type(screen.getByLabelText("Script"), "One, then two.");
+  await user.click(screen.getByText("Fine-tune delivery"));
+
+  const commaPause = screen.getByLabelText("Comma continuation (ms)");
+  await user.clear(commaPause);
+  await user.type(commaPause, "1001");
+  expect(commaPause).toHaveValue(1000);
+  await user.click(screen.getByRole("button", {name: "Generate speech"}));
+  await waitFor(() => expect(calls.some(({init}) => init?.method === "POST")).toBe(true));
+
+  const body = JSON.parse(String(calls.find(({init}) => init?.method === "POST")?.init?.body));
+  expect(body.comma_pause_ms).toBe(1000);
 });
 
 it("shows script statistics and disables generation for blank text", async () => {

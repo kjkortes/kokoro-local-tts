@@ -59,7 +59,7 @@ The first start can take several minutes while Kokoro downloads and loads. The h
 - **Voice previews** play an included, language-appropriate sample instantly for every voice without running synthesis.
 - **Voice blend** combines two voices from the same language with a visible A/B ratio.
 - **Expression** offers Neutral, Warm, Calm, Bright, Serious, and Dramatic. These are deterministic bundles of synthesis speed, pitch, tempo, and sentence pauses—not a claimed Kokoro emotion parameter.
-- **Fine-tune delivery** exposes those values directly, plus output volume.
+- **Fine-tune delivery** exposes those values directly, plus output volume and a configurable comma-continuation pause for storyboard rows (100 ms by default).
 - **Output** supports WAV, MP3, FLAC, and OGG at Kokoro's native 24 kHz, with optional loudness normalization.
 - **Long scripts** are split at paragraphs and sentence boundaries, synthesized in sequence, and joined with controlled pauses. Progress and cancellation remain available during generation.
 - **Timestamped transcripts** can be viewed, copied, or downloaded as readable text or JSON. American and British English voices also provide seekable word-level timestamps derived directly from Kokoro's synthesis durations; other languages retain segment-level timestamps.

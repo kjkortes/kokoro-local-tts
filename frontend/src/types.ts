@@ -45,7 +45,7 @@ export interface AppConfig {
   voices: VoiceInfo[];
   presets: ExpressionPreset[];
   formats: OutputFormat[];
-  defaults: {language: string; voice: string; preset: string; format: OutputFormat};
+  defaults: {language: string; voice: string; preset: string; format: OutputFormat; comma_pause_ms: number};
   limits: Record<string, {min: number; max: number}>;
 }
 
@@ -66,6 +66,7 @@ export interface GenerationRequest {
   preset: "neutral" | "warm" | "calm" | "bright" | "serious" | "dramatic";
   expression: ExpressionValues | null;
   pause_ms?: number | null;
+  comma_pause_ms: number;
   output_format: OutputFormat;
   normalize: boolean;
 }

@@ -31,6 +31,7 @@ export function App() {
   const [preset, setPreset] = useState<PresetId>("neutral");
   const [expression, setExpression] = useState<Required<ExpressionValues>>(FALLBACK_VALUES);
   const [pauseMs, setPauseMs] = useState<number | null>(null);
+  const [commaPauseMs, setCommaPauseMs] = useState(100);
   const [custom, setCustom] = useState(false);
   const [format, setFormat] = useState<OutputFormat>("wav");
   const [normalize, setNormalize] = useState(true);
@@ -46,6 +47,7 @@ export function App() {
         setLanguage(nextConfig.defaults.language);
         setPrimary(nextConfig.defaults.voice);
         setFormat(nextConfig.defaults.format);
+        setCommaPauseMs(nextConfig.defaults.comma_pause_ms ?? 100);
         const initial = nextConfig.presets.find((item) => item.id === nextConfig.defaults.preset) ?? nextConfig.presets[0];
         if (initial) applyPreset(initial);
       })
@@ -130,8 +132,10 @@ export function App() {
               onBlendEnabled={setBlendEnabled} onBlendRatio={setBlendRatio}
             />
             <ExpressionControls
-              presets={config.presets} selected={preset} values={expression} pauseMs={pauseMs} custom={custom}
+              presets={config.presets} selected={preset} values={expression} pauseMs={pauseMs}
+              commaPauseMs={commaPauseMs} custom={custom}
               onPreset={applyPreset} onValue={updateExpression} onPauseMs={updatePauseMs}
+              onCommaPauseMs={setCommaPauseMs}
             />
             <OutputControls formats={config.formats} format={format} normalize={normalize} onFormat={setFormat} onNormalize={setNormalize} />
           </aside>
@@ -145,7 +149,8 @@ export function App() {
           onGenerate={() => generation.generate({
             text: speechText, segments: storyboardSegments ?? undefined, language, primary_voice: primary,
             secondary_voice: blendEnabled ? secondary : null,
-            blend_ratio: blendRatio, preset, expression, pause_ms: pauseMs, output_format: format, normalize,
+            blend_ratio: blendRatio, preset, expression, pause_ms: pauseMs,
+            comma_pause_ms: commaPauseMs, output_format: format, normalize,
           })}
         />
         {generation.job?.state === "complete" ? (
