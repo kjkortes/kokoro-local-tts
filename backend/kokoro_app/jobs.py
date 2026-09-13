@@ -13,7 +13,13 @@ from kokoro_app.audio import SAMPLE_RATE, append_silence, encode_audio
 from kokoro_app.chunking import TextChunk, chunk_script
 from kokoro_app.engine import AlignedWord, KokoroEngine
 from kokoro_app.expressions import resolve_expression
-from kokoro_app.schemas import GenerationRequest, JobState
+from kokoro_app.fish_audio import (
+    FishAudioError,
+    FishAudioOpenRouterClient,
+    prepare_fish_input,
+)
+from kokoro_app.schemas import GenerationRequest, JobState, TtsEngine
+from kokoro_app.transcription import AudioTranscriber, WhisperTranscriber
 
 
 Encoder = Callable[..., None]
@@ -32,6 +38,8 @@ class JobRecord:
     duration: float | None = None
     segments: list[dict[str, str | float | bool]] = field(default_factory=list)
     words: list[dict[str, str | float]] = field(default_factory=list)
+    generation_id: str | None = None
+    timing_source: str | None = None
     created_at: float = field(default_factory=time.time)
 
 
@@ -114,11 +122,15 @@ class JobManager:
         output_dir: Path,
         *,
         encoder: Encoder = encode_audio,
+        fish_client: FishAudioOpenRouterClient | None = None,
+        fish_transcriber: AudioTranscriber | None = None,
     ) -> None:
         self.engine = engine
         self.output_dir = Path(output_dir)
         self.output_dir.mkdir(parents=True, exist_ok=True)
         self.encoder = encoder
+        self.fish_client = fish_client or FishAudioOpenRouterClient()
+        self.fish_transcriber = fish_transcriber or WhisperTranscriber()
         self._records: dict[str, JobRecord] = {}
         self._cancel_events: dict[str, threading.Event] = {}
         self._lock = threading.RLock()
@@ -170,6 +182,9 @@ class JobManager:
         if self._cancelled(record):
             return
         try:
+            if record.request.engine == TtsEngine.fish_audio:
+                self._run_fish(record)
+                return
             self._set(record, JobState.loading_model, "Loading Kokoro", 0.02)
             expression = resolve_expression(record.request.preset, record.request.expression)
             plan = _speech_plan(record.request)
@@ -230,6 +245,7 @@ class JobManager:
                 record.duration = len(pcm) / SAMPLE_RATE / expression.tempo
                 record.segments = []
                 record.words = []
+                record.timing_source = "kokoro"
                 if plan.storyboard_ranges is None:
                     for chunk, (audio_start, audio_end) in zip(
                         plan.chunks, chunk_audio_ranges, strict=True
@@ -275,12 +291,61 @@ class JobManager:
                 record.result_path.unlink(missing_ok=True)
             with self._lock:
                 record.result_path = None
-                record.error = {
-                    "code": "generation_failed",
-                    "message": "Speech generation failed.",
-                    "action": str(error) or "Check the local server log and try again.",
-                }
+                if isinstance(error, FishAudioError):
+                    record.error = {
+                        "code": error.code,
+                        "message": str(error),
+                    }
+                else:
+                    record.error = {
+                        "code": "generation_failed",
+                        "message": "Speech generation failed.",
+                        "action": str(error) or "Check the local server log and try again.",
+                    }
             self._set(record, JobState.failed, "Generation failed", record.progress)
+
+    def _run_fish(self, record: JobRecord) -> None:
+        self._set(record, JobState.synthesizing, "Generating with Fish Audio", 0.12)
+        request_key = (
+            record.request.openrouter_api_key.get_secret_value()
+            if record.request.openrouter_api_key is not None
+            else None
+        )
+        prepared_text = prepare_fish_input(
+            record.request.text,
+            record.request.fish_style.value,
+            record.request.fish_custom_style,
+        )
+        result = self.fish_client.synthesize(
+            prepared_text,
+            voice_id=record.request.fish_voice,
+            api_key=request_key,
+        )
+        if self._cancelled(record):
+            return
+        self._set(record, JobState.processing, "Saving Fish Audio MP3", 0.82)
+        destination = self.output_dir / f"{record.id}.mp3"
+        destination.write_bytes(result.audio)
+        if self._cancelled(record):
+            destination.unlink(missing_ok=True)
+            return
+        with self._lock:
+            record.result_path = destination
+            record.filename = _filename_for(record.request).rsplit(".", 1)[0] + ".mp3"
+            record.generation_id = result.generation_id
+        self._set(record, JobState.processing, "Creating timestamps with local Whisper", 0.9)
+        transcript = self.fish_transcriber.transcribe(
+            destination,
+            prompt=record.request.text,
+        )
+        if self._cancelled(record):
+            return
+        with self._lock:
+            record.duration = transcript.duration
+            record.segments = [segment.as_dict() for segment in transcript.segments]
+            record.words = [word.as_dict() for word in transcript.words]
+            record.timing_source = "whisper"
+        self._set(record, JobState.complete, "Audio ready", 1.0)
 
     def prune(self, older_than_seconds: float = 86_400) -> int:
         cutoff = time.time() - older_than_seconds

@@ -1,8 +1,9 @@
-export function GenerateBar({disabled, running, phase, progress, onGenerate, onCancel}: {
+export function GenerateBar({disabled, running, phase, progress, description = "Generation runs locally on this CPU.", onGenerate, onCancel}: {
   disabled: boolean;
   running: boolean;
   phase?: string;
   progress?: number;
+  description?: string;
   onGenerate: () => void;
   onCancel: () => void;
 }) {
@@ -16,7 +17,7 @@ export function GenerateBar({disabled, running, phase, progress, onGenerate, onC
         </>
       ) : (
         <>
-          <div><span className="eyebrow">Ready when you are</span><p>Generation runs locally on this CPU.</p></div>
+          <div><span className="eyebrow">Ready when you are</span><p>{description}</p></div>
           <button className="button primary" type="button" disabled={disabled} onClick={onGenerate}>
             Generate speech <span aria-hidden="true">↗</span>
           </button>
@@ -25,4 +26,3 @@ export function GenerateBar({disabled, running, phase, progress, onGenerate, onC
     </div>
   );
 }
-

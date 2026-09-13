@@ -5,6 +5,7 @@ description = "A private local Kokoro text-to-speech workbench"
 requires-python = ">=3.12,<3.13"
 dependencies = [
   "fastapi>=0.116,<1",
+  "faster-whisper>=1.2,<2",
   "kokoro>=0.9.4,<1",
   "numpy>=2,<3",
   "pydantic>=2.11,<3",

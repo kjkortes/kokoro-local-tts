@@ -8,6 +8,7 @@ interface ScriptEditorProps {
   onChange: (text: string) => void;
   storyboardSegments: string[] | null;
   onStoryboardSegments: (segments: string[] | null) => void;
+  privacyLabel?: string;
 }
 
 function readFile(file: File) {
@@ -19,7 +20,7 @@ function readFile(file: File) {
   });
 }
 
-export function ScriptEditor({text, onChange, storyboardSegments, onStoryboardSegments}: ScriptEditorProps) {
+export function ScriptEditor({text, onChange, storyboardSegments, onStoryboardSegments, privacyLabel = "Stays on this machine"}: ScriptEditorProps) {
   const [table, setTable] = useState<MarkdownTable | null>(null);
   const [selectedColumn, setSelectedColumn] = useState(0);
   const [filename, setFilename] = useState("");
@@ -70,7 +71,7 @@ export function ScriptEditor({text, onChange, storyboardSegments, onStoryboardSe
           <span className="eyebrow">Your script</span>
           <h1 id="script-heading">Give the words a voice.</h1>
         </div>
-        <span className="privacy-note">Stays on this machine</span>
+        <span className="privacy-note">{privacyLabel}</span>
       </div>
       <div className="script-source-switch" aria-label="Input method">
         <button

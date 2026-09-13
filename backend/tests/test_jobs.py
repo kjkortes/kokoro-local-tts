@@ -7,6 +7,7 @@ import pytest
 from kokoro_app.jobs import JobManager
 from kokoro_app.engine import AlignedWord, SynthesisResult
 from kokoro_app.schemas import ExpressionSettings, GenerationRequest, JobState
+from kokoro_app.transcription import TimedSegment, TimedWord, WhisperTranscript
 
 
 class FakeEngine:
@@ -212,4 +213,94 @@ def test_cancelled_queued_job_does_not_expose_partial_audio(tmp_path: Path) -> N
     wait_for(manager, second.id, JobState.cancelled)
     assert manager.get(second.id).result_path is None
     wait_for(manager, first.id, JobState.complete)
+    manager.shutdown()
+
+
+def test_fish_job_uses_one_remote_request_and_saves_the_returned_mp3(tmp_path: Path) -> None:
+    from kokoro_app.fish_audio import FishAudioResult
+
+    class FakeFishClient:
+        def __init__(self) -> None:
+            self.calls = []
+
+        def synthesize(self, text, **options):
+            self.calls.append((text, options))
+            return FishAudioResult(b"remote mp3", "audio/mpeg", "generation-456")
+
+    def unexpected_encoder(*args, **kwargs):
+        raise AssertionError("Fish MP3 bytes must not pass through the Kokoro PCM encoder")
+
+    class FakeTranscriber:
+        def __init__(self) -> None:
+            self.calls = []
+
+        def transcribe(self, audio_path: Path, *, prompt: str | None = None):
+            assert audio_path.read_bytes() == b"remote mp3"
+            self.calls.append((audio_path, prompt))
+            return WhisperTranscript(
+                duration=3.2,
+                segments=(TimedSegment("Why do airplane windows have rounded corners?", 0.1, 3.0),),
+                words=(
+                    TimedWord("Why", 0.1, 0.4),
+                    TimedWord("do", 0.45, 0.62),
+                ),
+            )
+
+    fish = FakeFishClient()
+    transcriber = FakeTranscriber()
+    manager = JobManager(
+        FakeEngine(),
+        tmp_path,
+        encoder=unexpected_encoder,
+        fish_client=fish,
+        fish_transcriber=transcriber,
+    )
+    record = manager.create(GenerationRequest(
+        engine="fish_audio",
+        text="[curious]\nWhy do airplane windows have rounded corners?",
+        fish_voice="voice-reference",
+        fish_style="documentary",
+        openrouter_api_key="request-key",
+    ))
+    wait_for(manager, record.id, JobState.complete)
+    finished = manager.get(record.id)
+
+    assert fish.calls == [(
+        "[calm, curious documentary narration with natural pacing]\n"
+        "[curious]\nWhy do airplane windows have rounded corners?",
+        {"voice_id": "voice-reference", "api_key": "request-key"},
+    )]
+    assert finished.result_path and finished.result_path.read_bytes() == b"remote mp3"
+    assert finished.result_path.suffix == ".mp3"
+    assert finished.filename and finished.filename.endswith(".mp3")
+    assert finished.generation_id == "generation-456"
+    assert finished.duration == 3.2
+    assert finished.segments == [{
+        "text": "Why do airplane windows have rounded corners?",
+        "start": 0.1,
+        "end": 3.0,
+        "paragraph_end": True,
+    }]
+    assert finished.words == [
+        {"text": "Why", "start": 0.1, "end": 0.4},
+        {"text": "do", "start": 0.45, "end": 0.62},
+    ]
+    assert finished.timing_source == "whisper"
+    assert transcriber.calls == [(finished.result_path, record.request.text)]
+    manager.shutdown()
+
+
+def test_kokoro_job_does_not_require_or_call_openrouter(tmp_path: Path, monkeypatch) -> None:
+    monkeypatch.delenv("OPENROUTER_API_KEY", raising=False)
+
+    class UnexpectedFishClient:
+        def synthesize(self, *args, **kwargs):
+            raise AssertionError("Kokoro must not contact OpenRouter")
+
+    manager = JobManager(
+        FakeEngine(), tmp_path, encoder=fake_encode, fish_client=UnexpectedFishClient()
+    )
+    record = manager.create(GenerationRequest(text="Offline speech."))
+    wait_for(manager, record.id, JobState.complete)
+    assert manager.get(record.id).result_path.read_bytes() == b"local audio"
     manager.shutdown()

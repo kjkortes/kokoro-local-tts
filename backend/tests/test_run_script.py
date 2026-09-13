@@ -95,6 +95,40 @@ def test_launcher_exposes_lan_by_default_and_prints_phone_url(tmp_path: Path) ->
     assert "no sign-in" in completed.stdout.lower()
 
 
+def test_launcher_loads_openrouter_key_from_env_file(tmp_path: Path) -> None:
+    binaries = tmp_path / "bin"
+    binaries.mkdir()
+    env_file = tmp_path / ".env"
+    env_file.write_text("OPENROUTER_API_KEY=loaded-test-key\n", encoding="utf-8")
+    _executable(binaries, "npm", "exit 0")
+    _executable(
+        binaries,
+        "uv",
+        '[[ "${OPENROUTER_API_KEY:-}" == "loaded-test-key" ]] && echo "OpenRouter key loaded"',
+    )
+    _executable(binaries, "ffmpeg", "exit 0")
+    _executable(binaries, "hostname", 'echo "127.0.0.1"')
+    environment = {
+        key: value for key, value in os.environ.items() if key != "OPENROUTER_API_KEY"
+    }
+    environment.update({
+        "PATH": f"{binaries}:{os.environ['PATH']}",
+        "KOKORO_PORT": str(_free_port()),
+        "KOKORO_ENV_FILE": str(env_file),
+    })
+
+    completed = subprocess.run(
+        ["bash", str(RUN_SCRIPT)],
+        cwd=PROJECT_ROOT,
+        env=environment,
+        capture_output=True,
+        text=True,
+        check=True,
+    )
+
+    assert "OpenRouter key loaded" in completed.stdout
+
+
 def test_run_reports_when_kokoro_is_already_running() -> None:
     server = ThreadingHTTPServer(("127.0.0.1", 0), _StatusHandler)
     thread = threading.Thread(target=server.serve_forever, daemon=True)

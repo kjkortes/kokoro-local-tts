@@ -76,9 +76,27 @@ textarea:focus { outline: 0; border-color: var(--cobalt); }
 .control-title { display: flex; align-items: baseline; justify-content: space-between; gap: 12px; margin-bottom: 20px; }
 h2 { margin: 0; font-size: 1rem; font-weight: 680; letter-spacing: -.02em; }
 .control-title > span { color: var(--muted); font-family: var(--mono); font-size: .63rem; text-transform: uppercase; }
+.engine-options { display: grid; gap: 8px; margin: 0; padding: 0; border: 0; }
+.engine-options label { display: grid; grid-template-columns: 18px minmax(0, 1fr); gap: 10px; padding: 13px; border: 1px solid var(--line); border-radius: 10px; background: var(--surface); cursor: pointer; }
+.engine-options label.active { border-color: var(--cobalt); box-shadow: inset 3px 0 0 var(--cobalt); }
+.engine-options input { width: 15px; height: 15px; margin: 3px 0 0; accent-color: var(--cobalt); }
+.engine-options span { display: grid; gap: 4px; }
+.engine-options b { font-size: .78rem; line-height: 1.35; }
+.engine-options small, .text-field small { color: var(--muted); font-size: .68rem; font-weight: 400; line-height: 1.4; }
 .field-row { display: grid; grid-template-columns: 1fr 1fr; gap: 10px; }
 .field { display: grid; gap: 7px; margin-bottom: 12px; color: var(--muted); font-size: .72rem; font-weight: 600; }
 select { width: 100%; height: 44px; appearance: none; padding: 0 36px 0 12px; border: 1px solid var(--line-dark); border-radius: 10px; color: var(--ink); background-color: var(--surface); background-image: linear-gradient(45deg, transparent 50%, var(--ink) 50%), linear-gradient(135deg, var(--ink) 50%, transparent 50%); background-position: calc(100% - 16px) 18px, calc(100% - 11px) 18px; background-size: 5px 5px; background-repeat: no-repeat; font-size: .85rem; }
+select:disabled { color: var(--muted); opacity: 1; background-image: none; }
+.text-field input { width: 100%; height: 44px; padding: 0 12px; border: 1px solid var(--line-dark); border-radius: 10px; background: var(--surface); color: var(--ink); font-size: .82rem; }
+.text-field input::placeholder { color: #929894; }
+.text-field input:focus { outline: 2px solid #3157e533; border-color: var(--cobalt); }
+.custom-style-field { margin-top: 14px; }
+.control-help { margin: 12px 0 0; color: var(--muted); font-size: .72rem; line-height: 1.45; }
+.fish-output { display: grid; grid-template-columns: 1fr auto; align-items: baseline; gap: 4px 12px; margin-top: 18px; padding: 13px; border: 1px solid var(--line); border-radius: 10px; background: var(--surface); }
+.fish-output span { color: var(--muted); font-size: .7rem; font-weight: 600; }
+.fish-output strong { font-family: var(--mono); font-size: .7rem; }
+.fish-output small { grid-column: 1 / -1; color: var(--muted); font-size: .66rem; }
+.free-model-note { margin: 12px 0 0; color: #116c3d; font-family: var(--mono); font-size: .62rem; text-transform: uppercase; letter-spacing: .04em; }
 .voice-select-row { display: grid; grid-template-columns: minmax(0, 1fr) auto; gap: 7px; }
 .voice-preview { min-width: 94px; height: 44px; display: inline-flex; align-items: center; justify-content: center; gap: 7px; padding: 0 11px; border: 1px solid var(--line-dark); border-radius: 10px; background: var(--surface); color: var(--ink); font-size: .72rem; font-weight: 650; }
 .voice-preview span { width: 10px; color: var(--cobalt); font-size: .56rem; text-align: center; }
@@ -150,6 +168,7 @@ summary span { color: var(--muted); font-weight: 400; }
 .transcript-panel { border: 1px solid var(--ink); border-top: 0; background: var(--surface); }
 .transcript-heading { min-height: 72px; display: flex; align-items: center; gap: 14px; padding: 14px 28px; border-bottom: 1px solid var(--line-dark); }
 .transcript-heading h2 { margin-right: auto; }
+.timing-source { color: var(--muted); font-family: var(--mono); font-size: .62rem; white-space: nowrap; }
 .transcript-view-switch { display: grid; grid-template-columns: 1fr 1fr; padding: 3px; border: 1px solid var(--line-dark); border-radius: 10px; background: #eef0ed; }
 .transcript-view-switch button { min-height: 44px; padding: 0 12px; border: 0; border-radius: 7px; background: transparent; color: var(--muted); font-family: var(--mono); font-size: .62rem; font-weight: 600; letter-spacing: .02em; }
 .transcript-view-switch button[aria-pressed="true"] { background: var(--ink); color: white; box-shadow: 0 1px 2px #1113; }

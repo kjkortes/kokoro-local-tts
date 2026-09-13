@@ -1,5 +1,16 @@
 export type Gender = "female" | "male";
 export type OutputFormat = "wav" | "mp3" | "flac" | "ogg";
+export type TtsEngine = "kokoro" | "fish_audio";
+export type FishDeliveryStyle =
+  | "natural"
+  | "documentary"
+  | "conversational"
+  | "educational"
+  | "energetic"
+  | "mysterious"
+  | "dramatic"
+  | "calm"
+  | "custom";
 export type JobState =
   | "queued"
   | "loading_model"
@@ -47,6 +58,7 @@ export interface AppConfig {
   formats: OutputFormat[];
   defaults: {language: string; voice: string; preset: string; format: OutputFormat};
   limits: Record<string, {min: number; max: number}>;
+  openrouter_configured?: boolean;
 }
 
 export interface StatusResponse {
@@ -56,9 +68,13 @@ export interface StatusResponse {
   detail: string | null;
 }
 
-export interface GenerationRequest {
+interface GenerationRequestBase {
   text: string;
   segments?: string[];
+}
+
+export interface KokoroGenerationRequest extends GenerationRequestBase {
+  engine?: "kokoro";
   language: string;
   primary_voice: string;
   secondary_voice: string | null;
@@ -69,6 +85,17 @@ export interface GenerationRequest {
   output_format: OutputFormat;
   normalize: boolean;
 }
+
+export interface FishGenerationRequest extends GenerationRequestBase {
+  engine: "fish_audio";
+  fish_voice?: string;
+  fish_style: FishDeliveryStyle;
+  fish_custom_style?: string;
+  openrouter_api_key?: string;
+  output_format: "mp3";
+}
+
+export type GenerationRequest = KokoroGenerationRequest | FishGenerationRequest;
 
 export interface TranscriptSegment {
   text: string;
@@ -96,4 +123,5 @@ export interface JobResponse {
   segments: TranscriptSegment[];
   words?: TranscriptWord[];
   transcript: string | null;
+  timing_source?: "kokoro" | "whisper" | null;
 }

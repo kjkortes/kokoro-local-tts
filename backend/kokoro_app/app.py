@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import os
 import threading
 from contextlib import asynccontextmanager
 from pathlib import Path
@@ -43,6 +44,7 @@ def _job_response(record: JobRecord) -> JobResponse:
         segments=record.segments,
         words=record.words,
         transcript=record.request.text if complete else None,
+        timing_source=record.timing_source,
     )
 
 
@@ -122,6 +124,7 @@ def create_app(
                 "pause_ms": {"min": 0.0, "max": 5000.0},
                 "volume": {"min": 0.0, "max": 1.5},
             },
+            openrouter_configured=bool(os.getenv("OPENROUTER_API_KEY", "").strip()),
         )
 
     @application.post("/api/jobs", response_model=JobResponse, status_code=status.HTTP_202_ACCEPTED)

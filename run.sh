@@ -5,6 +5,33 @@ project_dir="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 port="${KOKORO_PORT:-8000}"
 host="${KOKORO_HOST:-0.0.0.0}"
 
+load_openrouter_key() {
+  local env_file="${KOKORO_ENV_FILE:-$project_dir/.env}"
+  local line value first_character last_character
+  if [[ -n "${OPENROUTER_API_KEY:-}" || ! -f "$env_file" ]]; then
+    return 0
+  fi
+  while IFS= read -r line || [[ -n "$line" ]]; do
+    if [[ "$line" =~ ^[[:space:]]*(export[[:space:]]+)?OPENROUTER_API_KEY[[:space:]]*=(.*)$ ]]; then
+      value="${BASH_REMATCH[2]}"
+      value="${value#"${value%%[![:space:]]*}"}"
+      value="${value%"${value##*[![:space:]]}"}"
+      first_character="${value:0:1}"
+      last_character="${value: -1}"
+      if [[ ${#value} -ge 2 && (
+        ("$first_character" == '"' && "$last_character" == '"')
+        || ("$first_character" == "'" && "$last_character" == "'")
+      ) ]]; then
+        value="${value:1:${#value}-2}"
+      fi
+      export OPENROUTER_API_KEY="$value"
+      return 0
+    fi
+  done < "$env_file"
+}
+
+load_openrouter_key
+
 require_commands() {
   local dependency
   for dependency in "$@"; do

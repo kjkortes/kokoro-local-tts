@@ -3,7 +3,7 @@ from __future__ import annotations
 from enum import StrEnum
 from typing import Literal
 
-from pydantic import BaseModel, ConfigDict, Field, model_validator
+from pydantic import BaseModel, ConfigDict, Field, SecretStr, model_validator
 
 
 class Gender(StrEnum):
@@ -16,6 +16,23 @@ class OutputFormat(StrEnum):
     mp3 = "mp3"
     flac = "flac"
     ogg = "ogg"
+
+
+class TtsEngine(StrEnum):
+    kokoro = "kokoro"
+    fish_audio = "fish_audio"
+
+
+class FishDeliveryStyle(StrEnum):
+    natural = "natural"
+    documentary = "documentary"
+    conversational = "conversational"
+    educational = "educational"
+    energetic = "energetic"
+    mysterious = "mysterious"
+    dramatic = "dramatic"
+    calm = "calm"
+    custom = "custom"
 
 
 class JobState(StrEnum):
@@ -52,6 +69,7 @@ class ExpressionSettings(BaseModel):
 
 
 class GenerationRequest(BaseModel):
+    engine: TtsEngine = TtsEngine.kokoro
     text: str = Field(min_length=1, max_length=100_000)
     segments: list[str] | None = Field(default=None, min_length=1, max_length=10_000)
     language: str = "a"
@@ -63,6 +81,10 @@ class GenerationRequest(BaseModel):
     pause_ms: int | None = Field(default=None, ge=0, le=5000)
     output_format: OutputFormat = OutputFormat.wav
     normalize: bool = True
+    fish_voice: str | None = Field(default=None, max_length=256)
+    fish_style: FishDeliveryStyle = FishDeliveryStyle.natural
+    fish_custom_style: str | None = Field(default=None, max_length=500)
+    openrouter_api_key: SecretStr | None = Field(default=None, exclude=True)
 
     @model_validator(mode="after")
     def validate_voice_selection(self) -> GenerationRequest:
@@ -75,6 +97,12 @@ class GenerationRequest(BaseModel):
                 raise ValueError("Storyboard segments must contain speech text")
             if "\n\n".join(self.segments) != self.text:
                 raise ValueError("Storyboard segments must exactly match the submitted text")
+        if self.engine == TtsEngine.fish_audio:
+            if self.fish_style == FishDeliveryStyle.custom and not (
+                self.fish_custom_style and self.fish_custom_style.strip()
+            ):
+                raise ValueError("A custom Fish delivery instruction is required")
+            return self
         primary = voice_by_id(self.primary_voice)
         if primary is None or primary.language != self.language:
             raise ValueError("Primary voice must match the selected language")
@@ -104,6 +132,7 @@ class AppConfig(BaseModel):
     formats: list[OutputFormat]
     defaults: dict[str, object]
     limits: dict[str, dict[str, float]]
+    openrouter_configured: bool = False
 
 
 class StatusResponse(BaseModel):
@@ -139,6 +168,7 @@ class JobResponse(BaseModel):
     segments: list[TranscriptSegment] = Field(default_factory=list)
     words: list[TranscriptWord] = Field(default_factory=list)
     transcript: str | None = None
+    timing_source: Literal["kokoro", "whisper"] | None = None
 
 
 class ErrorBody(BaseModel):

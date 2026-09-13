@@ -39,7 +39,7 @@ test("mobile controls follow the script-to-output task order", async ({page}) =>
   await mockLocalApi(page);
   await page.goto("/");
   const labels = await page.locator("h1, h2").allTextContents();
-  expect(labels).toEqual(["Give the words a voice.", "Voice", "Expression", "Output"]);
+  expect(labels).toEqual(["Give the words a voice.", "TTS Engine", "Voice", "Expression", "Output"]);
   await page.getByLabel("Script").fill("Kokoro is private and local.");
   await expect(page.getByRole("button", {name: "Generate speech"})).toBeEnabled();
 });

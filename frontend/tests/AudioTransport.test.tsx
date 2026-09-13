@@ -98,6 +98,13 @@ it("shows every timestamped transcript segment", () => {
   expect(screen.getByText("0:02.7 — 0:05.2")).toBeVisible();
 });
 
+it("identifies Whisper-derived timing for Fish Audio transcripts", () => {
+  vi.stubGlobal("fetch", vi.fn(async () => new Response(new ArrayBuffer(8))));
+  render(<AudioTransport result={{...result, timing_source: "whisper"}} />);
+
+  expect(screen.getByText("Timed locally with Whisper")).toBeVisible();
+});
+
 it("switches between the readable transcript and timescript JSON", async () => {
   vi.stubGlobal("fetch", vi.fn(async () => new Response(new ArrayBuffer(8))));
   const user = userEvent.setup();

@@ -4,13 +4,15 @@ import {getConfig, getStatus} from "./api";
 import {AppHeader} from "./components/AppHeader";
 import {AudioTransport} from "./components/AudioTransport";
 import {ErrorNotice} from "./components/ErrorNotice";
+import {EngineControls} from "./components/EngineControls";
 import {ExpressionControls} from "./components/ExpressionControls";
+import {FishAudioControls} from "./components/FishAudioControls";
 import {GenerateBar} from "./components/GenerateBar";
 import {OutputControls} from "./components/OutputControls";
 import {ScriptEditor} from "./components/ScriptEditor";
 import {VoiceControls} from "./components/VoiceControls";
 import {useGeneration} from "./hooks/useGeneration";
-import type {AppConfig, ExpressionPreset, ExpressionValues, Gender, OutputFormat, StatusResponse} from "./types";
+import type {AppConfig, ExpressionPreset, ExpressionValues, FishDeliveryStyle, Gender, OutputFormat, StatusResponse, TtsEngine} from "./types";
 
 
 type PresetId = "neutral" | "warm" | "calm" | "bright" | "serious" | "dramatic";
@@ -21,6 +23,7 @@ export function App() {
   const [status, setStatus] = useState<StatusResponse | null>(null);
   const [loadError, setLoadError] = useState<string | null>(null);
   const [text, setText] = useState("");
+  const [engine, setEngine] = useState<TtsEngine>("kokoro");
   const [storyboardSegments, setStoryboardSegments] = useState<string[] | null>(null);
   const [language, setLanguage] = useState("a");
   const [gender, setGender] = useState<Gender | "all">("all");
@@ -34,6 +37,10 @@ export function App() {
   const [custom, setCustom] = useState(false);
   const [format, setFormat] = useState<OutputFormat>("wav");
   const [normalize, setNormalize] = useState(true);
+  const [fishVoice, setFishVoice] = useState("");
+  const [fishStyle, setFishStyle] = useState<FishDeliveryStyle>("natural");
+  const [fishCustomStyle, setFishCustomStyle] = useState("");
+  const [openRouterApiKey, setOpenRouterApiKey] = useState("");
   const generation = useGeneration();
   const speechText = storyboardSegments === null ? text : storyboardSegments.join("\n\n");
 
@@ -101,6 +108,36 @@ export function App() {
     setCustom(true);
   }
 
+  function generate() {
+    if (engine === "fish_audio") {
+      generation.generate({
+        engine: "fish_audio",
+        text: speechText,
+        segments: storyboardSegments ?? undefined,
+        fish_voice: fishVoice.trim() || undefined,
+        fish_style: fishStyle,
+        fish_custom_style: fishStyle === "custom" ? fishCustomStyle.trim() : undefined,
+        openrouter_api_key: openRouterApiKey.trim() || undefined,
+        output_format: "mp3",
+      });
+      return;
+    }
+    generation.generate({
+      engine: "kokoro",
+      text: speechText,
+      segments: storyboardSegments ?? undefined,
+      language,
+      primary_voice: primary,
+      secondary_voice: blendEnabled ? secondary : null,
+      blend_ratio: blendRatio,
+      preset,
+      expression,
+      pause_ms: pauseMs,
+      output_format: format,
+      normalize,
+    });
+  }
+
   if (!config) {
     return (
       <div className="app-shell loading-shell">
@@ -121,34 +158,48 @@ export function App() {
             onChange={setText}
             storyboardSegments={storyboardSegments}
             onStoryboardSegments={setStoryboardSegments}
+            privacyLabel={engine === "kokoro" ? "Stays on this machine" : "Sent to Fish Audio via OpenRouter"}
           />
           <aside className="control-panel">
-            <VoiceControls
-              languages={config.languages} voices={config.voices} language={language} gender={gender}
-              primary={primary} secondary={secondary} blendEnabled={blendEnabled} blendRatio={blendRatio}
-              onLanguage={chooseLanguage} onGender={chooseGender} onPrimary={choosePrimary} onSecondary={setSecondary}
-              onBlendEnabled={setBlendEnabled} onBlendRatio={setBlendRatio}
-            />
-            <ExpressionControls
-              presets={config.presets} selected={preset} values={expression} pauseMs={pauseMs}
-              custom={custom}
-              onPreset={applyPreset} onValue={updateExpression} onPauseMs={updatePauseMs}
-            />
-            <OutputControls formats={config.formats} format={format} normalize={normalize} onFormat={setFormat} onNormalize={setNormalize} />
+            <EngineControls engine={engine} onEngine={setEngine} />
+            {engine === "kokoro" ? (
+              <>
+                <VoiceControls
+                  languages={config.languages} voices={config.voices} language={language} gender={gender}
+                  primary={primary} secondary={secondary} blendEnabled={blendEnabled} blendRatio={blendRatio}
+                  onLanguage={chooseLanguage} onGender={chooseGender} onPrimary={choosePrimary} onSecondary={setSecondary}
+                  onBlendEnabled={setBlendEnabled} onBlendRatio={setBlendRatio}
+                />
+                <ExpressionControls
+                  presets={config.presets} selected={preset} values={expression} pauseMs={pauseMs}
+                  custom={custom}
+                  onPreset={applyPreset} onValue={updateExpression} onPauseMs={updatePauseMs}
+                />
+                <OutputControls formats={config.formats} format={format} normalize={normalize} onFormat={setFormat} onNormalize={setNormalize} />
+              </>
+            ) : (
+              <FishAudioControls
+                voice={fishVoice}
+                style={fishStyle}
+                customStyle={fishCustomStyle}
+                apiKey={openRouterApiKey}
+                environmentKeyConfigured={Boolean(config.openrouter_configured)}
+                onVoice={setFishVoice}
+                onStyle={setFishStyle}
+                onCustomStyle={setFishCustomStyle}
+                onApiKey={setOpenRouterApiKey}
+              />
+            )}
           </aside>
         </div>
         <GenerateBar
-          disabled={!speechText.trim() || !primary}
+          disabled={!speechText.trim() || (engine === "kokoro" && !primary) || (engine === "fish_audio" && fishStyle === "custom" && !fishCustomStyle.trim())}
           running={generation.isRunning}
           phase={generation.job?.phase}
           progress={generation.job?.progress}
           onCancel={generation.cancel}
-          onGenerate={() => generation.generate({
-            text: speechText, segments: storyboardSegments ?? undefined, language, primary_voice: primary,
-            secondary_voice: blendEnabled ? secondary : null,
-            blend_ratio: blendRatio, preset, expression, pause_ms: pauseMs,
-            output_format: format, normalize,
-          })}
+          description={engine === "kokoro" ? "Generation runs locally on this CPU." : "Your script is sent to Fish Audio through OpenRouter."}
+          onGenerate={generate}
         />
         {generation.job?.state === "complete" ? (
           <AudioTransport result={generation.job} />
@@ -156,7 +207,7 @@ export function App() {
           <div className="transport-placeholder" aria-hidden="true"><span>Audio transport appears here after generation</span><i /></div>
         )}
       </main>
-      <footer><span>Kokoro 82M</span><span>Private by default · Apache 2.0</span></footer>
+      <footer><span>{engine === "kokoro" ? "Kokoro 82M" : "Fish Audio S2.1 Pro Free"}</span><span>{engine === "kokoro" ? "Private by default · Apache 2.0" : "Cloud mode · free model only"}</span></footer>
     </div>
   );
 }

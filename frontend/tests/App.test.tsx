@@ -296,3 +296,51 @@ it("pastes a Markdown storyboard and submits the selected column as row segments
   const body = JSON.parse(String(calls.find(({init}) => init?.method === "POST")?.init?.body));
   expect(body.segments).toEqual(["Pasted first row.", "Pasted second row!"]);
 });
+
+it("switches to Fish-only controls and submits its voice, style, and secret", async () => {
+  const calls = stubApi();
+  const user = userEvent.setup();
+  render(<App />);
+  await screen.findByLabelText("Script");
+
+  await user.click(screen.getByRole("radio", {name: "Fish Audio S2.1 Pro Free — OpenRouter"}));
+  expect(screen.queryByLabelText("Primary voice")).not.toBeInTheDocument();
+  expect(screen.queryByRole("group", {name: "Audio format"})).not.toBeInTheDocument();
+  expect(screen.getByText("MP3", {selector: "strong"})).toBeVisible();
+
+  await user.type(screen.getByLabelText("Custom Fish Voice / Reference ID"), "voice-reference-id");
+  await user.selectOptions(screen.getByLabelText("Delivery Style"), "documentary");
+  await user.type(screen.getByLabelText("OpenRouter API Key"), "ui-secret-key");
+  await user.type(screen.getByLabelText("Script"), "A remote narration.");
+  await user.click(screen.getByRole("button", {name: "Generate speech"}));
+  await waitFor(() => expect(calls.some(({init}) => init?.method === "POST")).toBe(true));
+
+  const body = JSON.parse(String(calls.find(({init}) => init?.method === "POST")?.init?.body));
+  expect(body).toMatchObject({
+    engine: "fish_audio",
+    text: "A remote narration.",
+    fish_voice: "voice-reference-id",
+    fish_style: "documentary",
+    openrouter_api_key: "ui-secret-key",
+    output_format: "mp3",
+  });
+  expect(body).not.toHaveProperty("primary_voice");
+  expect(screen.getByLabelText("OpenRouter API Key")).toHaveAttribute("type", "password");
+});
+
+it("keeps Kokoro as the default and does not add Fish delivery instructions", async () => {
+  const calls = stubApi();
+  const user = userEvent.setup();
+  render(<App />);
+  await screen.findByLabelText("Script");
+
+  expect(screen.getByRole("radio", {name: "Kokoro Local"})).toBeChecked();
+  fireEvent.change(screen.getByLabelText("Script"), {target: {value: "[quiet] Keep this text unchanged."}});
+  await user.click(screen.getByRole("button", {name: "Generate speech"}));
+  await waitFor(() => expect(calls.some(({init}) => init?.method === "POST")).toBe(true));
+
+  const body = JSON.parse(String(calls.find(({init}) => init?.method === "POST")?.init?.body));
+  expect(body.engine).toBe("kokoro");
+  expect(body.text).toBe("[quiet] Keep this text unchanged.");
+  expect(body).not.toHaveProperty("fish_style");
+});
