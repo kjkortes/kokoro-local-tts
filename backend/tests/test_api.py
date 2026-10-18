@@ -41,6 +41,8 @@ def test_config_exposes_catalog_presets_formats_and_bounds(tmp_path: Path) -> No
     assert body["limits"]["pause_ms"] == {"min": 0.0, "max": 5000.0}
     assert "comma_pause_ms" not in body["limits"]
     assert "comma_pause_ms" not in body["defaults"]
+    assert body["defaults"]["engine"] == "fish_audio"
+    assert body["defaults"]["fish_voice"] == "b0204e37cbc94a16954c78697b844af2"
     jobs.shutdown()
 
 

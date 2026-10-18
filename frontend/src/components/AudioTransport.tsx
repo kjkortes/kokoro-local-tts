@@ -1,5 +1,6 @@
 import {useEffect, useRef, useState} from "react";
 
+import {writeClipboard} from "../clipboard";
 import {useAudioTransport} from "../hooks/useAudioTransport";
 import type {JobResponse} from "../types";
 
@@ -22,32 +23,6 @@ function formatTimestampedTranscript(segments: NonNullable<JobResponse["segments
     if (index === segments.length - 1) return line;
     return `${line}${segment.paragraph_end ? "\n\n" : "\n"}`;
   }).join("");
-}
-
-async function writeClipboard(text: string) {
-  if (navigator.clipboard?.writeText) {
-    try {
-      await navigator.clipboard.writeText(text);
-      return true;
-    } catch {
-      // Fall through for browsers that restrict Clipboard API access on local-network HTTP.
-    }
-  }
-  let field: HTMLTextAreaElement | null = null;
-  try {
-    field = document.createElement("textarea");
-    field.value = text;
-    field.readOnly = true;
-    field.style.position = "fixed";
-    field.style.opacity = "0";
-    document.body.append(field);
-    field.select();
-    return typeof document.execCommand === "function" && document.execCommand("copy");
-  } catch {
-    return false;
-  } finally {
-    field?.remove();
-  }
 }
 
 function useWaveform(url: string | null) {

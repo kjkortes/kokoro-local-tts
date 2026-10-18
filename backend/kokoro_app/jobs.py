@@ -6,6 +6,7 @@ import time
 import uuid
 from concurrent.futures import ThreadPoolExecutor
 from dataclasses import dataclass, field
+from difflib import SequenceMatcher
 from pathlib import Path
 from typing import Callable
 
@@ -113,6 +114,78 @@ def _sample_at_text_offset(
             position = min(text_length, max(0, offset - text_start))
             return audio_start + round((audio_end - audio_start) * position / text_length)
     return chunk_audio_ranges[-1][1]
+
+
+_SPOKEN_WORD = re.compile(r"[\w]+(?:['’][\w]+)*", flags=re.UNICODE)
+
+
+def _tokens(text: str) -> list[str]:
+    return [match.group().casefold() for match in _SPOKEN_WORD.finditer(text)]
+
+
+def _storyboard_segments_from_whisper(
+    source_segments: list[str], transcript: WhisperTranscript
+) -> list[dict[str, str | float | bool]]:
+    """Keep storyboard rows as the transcript source while using Whisper timing."""
+    source_words: list[str] = []
+    row_ranges: list[tuple[int, int]] = []
+    for segment in source_segments:
+        start = len(source_words)
+        source_words.extend(_tokens(segment))
+        row_ranges.append((start, len(source_words)))
+
+    timed_words = [
+        (token, word.start, word.end)
+        for word in transcript.words
+        for token in _tokens(word.text)
+    ]
+    timeline_start = timed_words[0][1] if timed_words else (
+        transcript.segments[0].start if transcript.segments else 0.0
+    )
+    timeline_end = timed_words[-1][2] if timed_words else max(
+        transcript.duration,
+        transcript.segments[-1].end if transcript.segments else 0.0,
+    )
+    total_words = max(1, len(source_words))
+
+    matched_words: dict[int, tuple[float, float]] = {}
+    for block in SequenceMatcher(
+        None, source_words, [word[0] for word in timed_words], autojunk=False
+    ).get_matching_blocks():
+        for offset in range(block.size):
+            _, start, end = timed_words[block.b + offset]
+            matched_words[block.a + offset] = (start, end)
+
+    def fallback(position: int) -> float:
+        return timeline_start + (timeline_end - timeline_start) * position / total_words
+
+    def boundary(position: int, *, is_start: bool) -> float:
+        if is_start and position in matched_words:
+            return matched_words[position][0]
+        if not is_start and position - 1 in matched_words:
+            return matched_words[position - 1][1]
+        before = max((index for index in matched_words if index < position), default=None)
+        after = min((index for index in matched_words if index >= position), default=None)
+        if before is None or after is None:
+            return fallback(position)
+        before_time = matched_words[before][1]
+        after_time = matched_words[after][0]
+        distance = max(1, after - before - 1)
+        return before_time + (after_time - before_time) * (position - before - 1) / distance
+
+    result: list[dict[str, str | float | bool]] = []
+    previous_end = timeline_start
+    for text, (start_word, end_word) in zip(source_segments, row_ranges, strict=True):
+        start = max(previous_end, boundary(start_word, is_start=True))
+        end = max(start, boundary(end_word, is_start=False))
+        result.append({
+            "text": text,
+            "start": round(start, 6),
+            "end": round(end, 6),
+            "paragraph_end": True,
+        })
+        previous_end = end
+    return result
 
 
 class JobManager:
@@ -342,7 +415,11 @@ class JobManager:
             return
         with self._lock:
             record.duration = transcript.duration
-            record.segments = [segment.as_dict() for segment in transcript.segments]
+            record.segments = (
+                _storyboard_segments_from_whisper(record.request.segments, transcript)
+                if record.request.segments is not None
+                else [segment.as_dict() for segment in transcript.segments]
+            )
             record.words = [word.as_dict() for word in transcript.words]
             record.timing_source = "whisper"
         self._set(record, JobState.complete, "Audio ready", 1.0)

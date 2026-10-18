@@ -5,7 +5,7 @@ import threading
 from contextlib import asynccontextmanager
 from pathlib import Path
 
-from fastapi import FastAPI, HTTPException, Request, status
+from fastapi import FastAPI, HTTPException, Query, Request, status
 from fastapi.exceptions import RequestValidationError
 from fastapi.responses import FileResponse, JSONResponse
 from fastapi.staticfiles import StaticFiles
@@ -14,10 +14,14 @@ from kokoro_app import __version__
 from kokoro_app.catalog import LANGUAGES, VOICES
 from kokoro_app.engine import KokoroEngine
 from kokoro_app.expressions import PRESETS
+from kokoro_app.fish_voices import FishVoiceLibrary, VoiceLibraryError
 from kokoro_app.jobs import JobManager, JobNotFoundError, JobRecord
 from kokoro_app.schemas import (
     AppConfig,
     ExpressionPresetInfo,
+    FishVoiceInput,
+    FishVoicePage,
+    FishVoiceReference,
     GenerationRequest,
     JobResponse,
     OutputFormat,
@@ -58,9 +62,11 @@ def create_app(
     *,
     preload_model: bool = True,
     frontend_dist: Path | None = None,
+    fish_voice_db: Path | None = None,
 ) -> FastAPI:
     active_engine = engine or KokoroEngine()
     active_jobs = jobs or JobManager(active_engine, RUNTIME_DIR)
+    voice_library = FishVoiceLibrary(fish_voice_db if fish_voice_db is not None else RUNTIME_DIR.parent / "fish_voices.sqlite3")
 
     @asynccontextmanager
     async def lifespan(_: FastAPI):
@@ -76,7 +82,14 @@ def create_app(
     dist = Path(frontend_dist) if frontend_dist is not None else FRONTEND_DIST
 
     @application.exception_handler(RequestValidationError)
-    async def validation_error(_: Request, error: RequestValidationError) -> JSONResponse:
+    async def validation_error(request: Request, error: RequestValidationError) -> JSONResponse:
+        if request.url.path.startswith("/api/fish-voices"):
+            if any(item["loc"][0] == "query" for item in error.errors()):
+                return JSONResponse(_error("invalid_pagination", "Choose a page of 1 or higher and a page size between 1 and 100."), status_code=422)
+            return JSONResponse(_error(
+                "invalid_voice_reference",
+                "Enter a name (1–100 characters), a description up to 2,000 characters, and a reference ID or Fish Audio voice URL (https://fish.audio/app/m/<reference-id>/).",
+            ), status_code=422)
         text_error = (
             isinstance(error.body, dict)
             and not str(error.body.get("text", "")).strip()
@@ -86,6 +99,30 @@ def create_app(
         else:
             payload = _error("invalid_request", "One or more speech settings are invalid.", "Review the highlighted controls.")
         return JSONResponse(payload, status_code=422)
+
+    @application.exception_handler(VoiceLibraryError)
+    async def voice_library_error(_: Request, error: VoiceLibraryError) -> JSONResponse:
+        return JSONResponse(_error(error.code, str(error)), status_code=error.status_code)
+
+    @application.get("/api/fish-voices", response_model=list[FishVoiceReference])
+    def list_fish_voices() -> list[FishVoiceReference]:
+        return voice_library.list()
+
+    @application.get("/api/fish-voices/page", response_model=FishVoicePage)
+    def page_fish_voices(page: int = Query(default=1, ge=1), page_size: int = Query(default=10, ge=1, le=100)) -> FishVoicePage:
+        return voice_library.page(page, page_size)
+
+    @application.post("/api/fish-voices", response_model=FishVoiceReference, status_code=status.HTTP_201_CREATED)
+    def create_fish_voice(voice: FishVoiceInput) -> FishVoiceReference:
+        return voice_library.create(voice)
+
+    @application.put("/api/fish-voices/{identifier}", response_model=FishVoiceReference)
+    def update_fish_voice(identifier: str, voice: FishVoiceInput) -> FishVoiceReference:
+        return voice_library.update(identifier, voice)
+
+    @application.delete("/api/fish-voices/{identifier}", response_model=FishVoiceReference)
+    def delete_fish_voice(identifier: str) -> FishVoiceReference:
+        return voice_library.delete(identifier)
 
     @application.get("/api/status", response_model=StatusResponse)
     def runtime_status() -> StatusResponse:
@@ -111,6 +148,8 @@ def create_app(
             ],
             formats=list(OutputFormat),
             defaults={
+                "engine": "fish_audio",
+                "fish_voice": "b0204e37cbc94a16954c78697b844af2",
                 "language": "a",
                 "voice": "af_heart",
                 "preset": "neutral",

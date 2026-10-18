@@ -1,6 +1,6 @@
 # Kokoro Local TTS
 
-A local-first web workbench for turning scripts into speech. Kokoro 82M remains the default private, offline engine, with all 54 Kokoro v1.0 voices, nine language/accent groups, expression presets, voice blending, timestamped transcripts, a waveform player, and WAV/MP3/FLAC/OGG downloads. Fish Audio S2.1 Pro Free is also available as an optional cloud engine through OpenRouter.
+A web workbench for turning scripts into speech. Fish Audio S2.1 Pro Free is the default engine through OpenRouter, using voice reference `b0204e37cbc94a16954c78697b844af2`. Kokoro 82M remains available as a private, offline engine with all 54 Kokoro v1.0 voices, nine language/accent groups, expression presets, voice blending, timestamped transcripts, a waveform player, and WAV/MP3/FLAC/OGG downloads.
 
 In Kokoro mode, no script text is sent to a cloud API. The first launch downloads Kokoro's open model files from Hugging Face; later launches reuse the local cache and can work offline. Fish Audio mode sends the submitted script and optional voice reference ID to OpenRouter for synthesis; the interface marks this mode clearly.
 
@@ -67,7 +67,8 @@ The first start can take several minutes while Kokoro downloads and loads. The h
 
 ## Controls
 
-- **TTS engine** switches between offline Kokoro Local and Fish Audio S2.1 Pro Free through OpenRouter. Kokoro remains the default.
+- **TTS engine** switches between offline Kokoro Local and Fish Audio S2.1 Pro Free through OpenRouter. Fish Audio is selected by default.
+- **Saved Fish voices** lets you save names, descriptions, and reference IDs, edit them, and delete them with confirmation. Open **Voices** in the main navigation for a management page with 10 voices per page and **Use voice** actions. Saved voices appear in the Fish voice selector and persist across restarts, shared by devices using the same server.
 - **Markdown storyboards** can be pasted directly or uploaded from `.md`, `.markdown`, or `.txt` files. Choose any table column for speech; every non-empty cell remains a read-only, timestamped segment matching its source row.
 - **Language and gender** filter the official voice catalog; gender is voice metadata, not a model setting.
 - **Voice previews** play an included, language-appropriate sample instantly for every voice without running synthesis.
@@ -109,12 +110,18 @@ There is no fallback to `fish-audio/s2.1-pro` or any other paid model. If the fr
 
    If no environment key is configured, you can paste a key into the password-style field in Fish mode. That key is kept only in the current browser session. `OPENROUTER_API_KEY` takes precedence and disables the browser field; environment configuration is preferred, especially when accessing the app over a local network.
 
-3. Select **Fish Audio S2.1 Pro Free — OpenRouter** under **TTS Engine**.
-4. Leave the voice on **Default / Provider Default**, or paste a reference ID copied from a Fish Audio voice/model page. Voice identity is the preferred way to choose an accent.
+3. **Fish Audio S2.1 Pro Free — OpenRouter** is selected by default under **TTS Engine**.
+4. Under **Voice / Accent**, choose a saved **Fish voice**. The library starts with reference `b0204e37cbc94a16954c78697b844af2`, named **Original Fish voice**. Use **Add voice** to enter **Name**, **Description** (optional), and **Reference ID**. You can paste a Fish Audio voice URL such as `https://fish.audio/app/m/689b47ca83dd48dba90b160affb8a118/` into **Reference ID**; the app extracts `689b47ca83dd48dba90b160affb8a118` automatically. Saving from the studio selects that voice for generation. Select an existing voice to **Edit voice** or **Delete voice**. Choose **Custom reference ID…** for a one-time ID, or **Provider default** to omit the reference. Voice identity is the preferred way to choose an accent.
 5. Choose a **Delivery Style**. The app prepends the corresponding Fish bracket instruction, while preserving any bracketed instructions already in the script. **Custom** accepts your own instruction.
 6. Generate, play, and download the returned MP3 through the existing audio controls. The timestamp panel also lets you switch between segment and word timing, select **JSON**, and download the timescript.
 
 The free model is intended for testing and lower-volume use and is subject to OpenRouter's free-model rate limits and availability. Fish mode uses one request for the complete narration rather than one request per sentence. Kokoro does not require this key and remains fully functional offline.
+
+Open **Voices** or **Manage all voices** to browse the paginated library, read descriptions, edit or delete any voice, or choose **Use voice** to return to the studio with that voice selected. Your current script stays in place while you manage voices.
+
+Use **Copy ID** beside a voice reference to copy just its reference ID. **Open in Fish Audio** opens that voice's Fish Audio page in a new tab so you can listen to its samples. These actions are available in both the management list and the studio's selected voice controls. If the browser blocks automatic copying, the app provides a selected ID field for manual copying.
+
+The voice library is stored in `runtime/fish_voices.sqlite3`, separate from expiring audio files. Back up this file to keep your saved names, descriptions, and references. Existing libraries are upgraded automatically; older voices start with an empty description. The list loads when Fish controls open; use **Reload voices** to pick up changes made on another device. Deleting a library entry only removes the local shortcut, not the voice on Fish Audio. API keys are never stored in the library.
 
 After OpenRouter returns the MP3, the app runs the multilingual `small` [faster-whisper](https://github.com/SYSTRAN/faster-whisper) model locally with CPU int8 inference and word timestamps. The first Fish generation downloads this Whisper model from Hugging Face; later runs reuse the local cache. Audio is not sent to another transcription service. Because these timestamps come from speech recognition rather than Fish Audio provider alignment, recognized text can occasionally differ slightly from the submitted script. The interface labels these results **Timed locally with Whisper**.
 

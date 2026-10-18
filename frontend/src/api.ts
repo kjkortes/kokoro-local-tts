@@ -1,4 +1,4 @@
-import type {AppConfig, GenerationRequest, JobResponse, StatusResponse} from "./types";
+import type {AppConfig, FishVoiceInput, FishVoicePage, FishVoiceReference, GenerationRequest, JobResponse, StatusResponse} from "./types";
 
 
 export class LocalApiError extends Error {
@@ -32,6 +32,22 @@ export const getStatus = (signal?: AbortSignal) =>
 
 export const getConfig = (signal?: AbortSignal) =>
   request<AppConfig>("/api/config", {signal});
+
+export const getFishVoices = (signal?: AbortSignal) =>
+  request<FishVoiceReference[]>("/api/fish-voices", {signal});
+
+export const getFishVoicePage = (page: number, signal?: AbortSignal) =>
+  request<FishVoicePage>(`/api/fish-voices/page?page=${page}&page_size=10`, {signal});
+
+export const saveFishVoice = (voice: FishVoiceInput, identifier?: string) =>
+  request<FishVoiceReference>(identifier ? `/api/fish-voices/${encodeURIComponent(identifier)}` : "/api/fish-voices", {
+    method: identifier ? "PUT" : "POST",
+    headers: {"Content-Type": "application/json"},
+    body: JSON.stringify(voice),
+  });
+
+export const deleteFishVoice = (identifier: string) =>
+  request<FishVoiceReference>(`/api/fish-voices/${encodeURIComponent(identifier)}`, {method: "DELETE"});
 
 export const createJob = (payload: GenerationRequest, signal?: AbortSignal) =>
   request<JobResponse>("/api/jobs", {

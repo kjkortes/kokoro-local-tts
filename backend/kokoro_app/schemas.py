@@ -3,7 +3,9 @@ from __future__ import annotations
 from enum import StrEnum
 from typing import Literal
 
-from pydantic import BaseModel, ConfigDict, Field, SecretStr, model_validator
+from pydantic import BaseModel, ConfigDict, Field, SecretStr, field_validator, model_validator
+
+from kokoro_app.fish_reference import normalize_fish_reference
 
 
 class Gender(StrEnum):
@@ -58,6 +60,31 @@ class VoiceInfo(BaseModel):
     name: str
     language: str
     gender: Gender
+
+
+class FishVoiceDetails(BaseModel):
+    model_config = ConfigDict(str_strip_whitespace=True)
+    name: str = Field(min_length=1, max_length=100)
+    description: str = Field(default="", max_length=2000)
+    reference_id: str = Field(min_length=1, max_length=256)
+
+
+class FishVoiceInput(FishVoiceDetails):
+    @field_validator("reference_id", mode="before")
+    @classmethod
+    def normalize_reference(cls, value: object) -> object:
+        return normalize_fish_reference(value) if isinstance(value, str) else value
+
+
+class FishVoiceReference(FishVoiceDetails):
+    id: str
+
+
+class FishVoicePage(BaseModel):
+    items: list[FishVoiceReference]
+    total: int
+    page: int
+    page_size: int
 
 
 class ExpressionSettings(BaseModel):

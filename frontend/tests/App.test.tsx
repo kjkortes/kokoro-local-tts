@@ -22,7 +22,14 @@ const config: AppConfig = {
     {id: "calm", name: "Calm", description: "Measured and spacious.", speed: .9, pitch: -.7, tempo: .94, pause_scale: 1.25},
   ],
   formats: ["wav", "mp3", "flac", "ogg"],
-  defaults: {language: "a", voice: "af_heart", preset: "neutral", format: "wav"},
+  defaults: {
+    engine: "kokoro",
+    fish_voice: "b0204e37cbc94a16954c78697b844af2",
+    language: "a",
+    voice: "af_heart",
+    preset: "neutral",
+    format: "wav",
+  },
   limits: {
     speed: {min: .5, max: 2}, pitch: {min: -4, max: 4}, tempo: {min: .75, max: 1.25},
     pause_scale: {min: .5, max: 2}, volume: {min: 0, max: 1.5},
@@ -30,13 +37,21 @@ const config: AppConfig = {
   },
 };
 
-function stubApi() {
+function stubApi(appConfig: AppConfig = config) {
   const calls: Array<{url: string; init?: RequestInit}> = [];
   vi.stubGlobal("fetch", vi.fn(async (input: string | URL | Request, init?: RequestInit) => {
     const url = String(input);
     calls.push({url, init});
-    if (url.endsWith("/api/config")) return Response.json(config);
+    if (url.endsWith("/api/config")) return Response.json(appConfig);
     if (url.endsWith("/api/status")) return Response.json({state: "ready", device: "cpu", version: "0.1.0", detail: null});
+    if (url.startsWith("/api/fish-voices/page")) return Response.json({
+      items: [{id: "saved-two", name: "Documentary narrator", description: "Warm documentary delivery", reference_id: "saved-documentary-ref"}],
+      total: 1, page: 1, page_size: 10,
+    });
+    if (url.endsWith("/api/fish-voices")) return Response.json([
+      {id: "original", name: "Original Fish voice", description: "", reference_id: "b0204e37cbc94a16954c78697b844af2"},
+      {id: "saved-two", name: "Documentary narrator", description: "Warm documentary delivery", reference_id: "saved-documentary-ref"},
+    ]);
     return Response.json({
       id: "one", state: "complete", phase: "Audio ready", progress: 1, error: null,
       audio_url: "/api/jobs/one/audio", download_url: "/api/jobs/one/download",
@@ -297,18 +312,22 @@ it("pastes a Markdown storyboard and submits the selected column as row segments
   expect(body.segments).toEqual(["Pasted first row.", "Pasted second row!"]);
 });
 
-it("switches to Fish-only controls and submits its voice, style, and secret", async () => {
-  const calls = stubApi();
+it("uses the configured Fish engine and voice defaults and submits them", async () => {
+  const calls = stubApi({
+    ...config,
+    defaults: {...config.defaults, engine: "fish_audio"},
+  });
   const user = userEvent.setup();
   render(<App />);
   await screen.findByLabelText("Script");
 
-  await user.click(screen.getByRole("radio", {name: "Fish Audio S2.1 Pro Free — OpenRouter"}));
+  expect(screen.getByRole("radio", {name: "Fish Audio S2.1 Pro Free — OpenRouter"})).toBeChecked();
   expect(screen.queryByLabelText("Primary voice")).not.toBeInTheDocument();
   expect(screen.queryByRole("group", {name: "Audio format"})).not.toBeInTheDocument();
   expect(screen.getByText("MP3", {selector: "strong"})).toBeVisible();
+  await screen.findByRole("option", {name: "Original Fish voice"});
+  expect(screen.getByLabelText("Fish voice")).toHaveValue("original");
 
-  await user.type(screen.getByLabelText("Custom Fish Voice / Reference ID"), "voice-reference-id");
   await user.selectOptions(screen.getByLabelText("Delivery Style"), "documentary");
   await user.type(screen.getByLabelText("OpenRouter API Key"), "ui-secret-key");
   await user.type(screen.getByLabelText("Script"), "A remote narration.");
@@ -319,7 +338,7 @@ it("switches to Fish-only controls and submits its voice, style, and secret", as
   expect(body).toMatchObject({
     engine: "fish_audio",
     text: "A remote narration.",
-    fish_voice: "voice-reference-id",
+    fish_voice: "b0204e37cbc94a16954c78697b844af2",
     fish_style: "documentary",
     openrouter_api_key: "ui-secret-key",
     output_format: "mp3",
@@ -328,7 +347,45 @@ it("switches to Fish-only controls and submits its voice, style, and secret", as
   expect(screen.getByLabelText("OpenRouter API Key")).toHaveAttribute("type", "password");
 });
 
-it("keeps Kokoro as the default and does not add Fish delivery instructions", async () => {
+it("submits the selected saved reference and omits it for provider default", async () => {
+  const calls = stubApi({...config, defaults: {...config.defaults, engine: "fish_audio"}});
+  const user = userEvent.setup();
+  render(<App />);
+  await screen.findByRole("option", {name: "Documentary narrator"});
+  await user.selectOptions(screen.getByLabelText("Fish voice"), "saved-two");
+  await user.click(screen.getByRole("radio", {name: "Kokoro Local"}));
+  await user.click(screen.getByRole("radio", {name: "Fish Audio S2.1 Pro Free — OpenRouter"}));
+  await screen.findByRole("option", {name: "Documentary narrator"});
+  expect(screen.getByLabelText("Fish voice")).toHaveValue("saved-two");
+  fireEvent.change(screen.getByLabelText("Script"), {target: {value: "A saved voice narration."}});
+  await user.click(screen.getByRole("button", {name: "Generate speech"}));
+  await waitFor(() => expect(calls.filter(({url, init}) => url === "/api/jobs" && init?.method === "POST")).toHaveLength(1));
+  let submitted = calls.filter(({url, init}) => url === "/api/jobs" && init?.method === "POST");
+  expect(JSON.parse(String(submitted[0].init?.body)).fish_voice).toBe("saved-documentary-ref");
+
+  await user.selectOptions(screen.getByLabelText("Fish voice"), "provider");
+  await user.click(screen.getByRole("button", {name: "Generate speech"}));
+  await waitFor(() => expect(calls.filter(({url, init}) => url === "/api/jobs" && init?.method === "POST")).toHaveLength(2));
+  submitted = calls.filter(({url, init}) => url === "/api/jobs" && init?.method === "POST");
+  expect(JSON.parse(String(submitted[1].init?.body))).not.toHaveProperty("fish_voice");
+});
+
+it("opens the voice management page and uses a voice without losing the script", async () => {
+  stubApi({...config, defaults: {...config.defaults, engine: "fish_audio"}});
+  const user = userEvent.setup();
+  render(<App />);
+  await screen.findByRole("option", {name: "Documentary narrator"});
+  fireEvent.change(screen.getByLabelText("Script"), {target: {value: "Keep this script while managing voices."}});
+  await user.selectOptions(screen.getByLabelText("Fish voice"), "custom");
+  await user.click(screen.getByRole("link", {name: "Manage all voices"}));
+  expect(await screen.findByRole("heading", {name: "Voice library"})).toBeVisible();
+  await user.click(await screen.findByRole("button", {name: "Use Documentary narrator"}));
+  await waitFor(() => expect(screen.queryByRole("heading", {name: "Voice library"})).not.toBeInTheDocument());
+  expect(screen.getByLabelText("Script")).toHaveValue("Keep this script while managing voices.");
+  await waitFor(() => expect(screen.getByLabelText("Fish voice")).toHaveValue("saved-two"));
+});
+
+it("honors a configured Kokoro default and does not add Fish delivery instructions", async () => {
   const calls = stubApi();
   const user = userEvent.setup();
   render(<App />);

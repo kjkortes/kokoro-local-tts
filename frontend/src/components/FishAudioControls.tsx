@@ -1,4 +1,5 @@
 import type {FishDeliveryStyle} from "../types";
+import {FishVoiceLibrary} from "./FishVoiceLibrary";
 
 
 const STYLE_OPTIONS: Array<{id: FishDeliveryStyle; name: string}> = [
@@ -23,6 +24,7 @@ interface Props {
   onStyle: (value: FishDeliveryStyle) => void;
   onCustomStyle: (value: string) => void;
   onApiKey: (value: string) => void;
+  libraryRevision?: number;
 }
 
 export function FishAudioControls(props: Props) {
@@ -30,24 +32,7 @@ export function FishAudioControls(props: Props) {
     <>
       <section className="control-section fish-section" aria-labelledby="fish-voice-heading">
         <div className="control-title"><h2 id="fish-voice-heading">Voice / Accent</h2><span>Fish Audio</span></div>
-        <label className="field">Voice
-          <select value="default" disabled>
-            <option value="default">Default / Provider Default</option>
-          </select>
-        </label>
-        <label className="field text-field">
-          Custom Fish Voice / Reference ID
-          <input
-            type="text"
-            aria-label="Custom Fish Voice / Reference ID"
-            value={props.voice}
-            onChange={(event) => props.onVoice(event.target.value)}
-            placeholder="e.g. 802e3bc2b27e49c2995d23ef70e6ac89"
-            autoComplete="off"
-            spellCheck={false}
-          />
-          <small>Use a Fish Audio voice ID to choose speaker identity and accent. Leave blank for the provider default.</small>
-        </label>
+        <FishVoiceLibrary voice={props.voice} onVoice={props.onVoice} revision={props.libraryRevision} />
       </section>
       <section className="control-section fish-section" aria-label="Fish delivery controls">
         <div className="control-title"><h2 id="fish-delivery-heading">Delivery Style</h2><span>Performance</span></div>

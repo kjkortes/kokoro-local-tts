@@ -7,23 +7,26 @@ import {ErrorNotice} from "./components/ErrorNotice";
 import {EngineControls} from "./components/EngineControls";
 import {ExpressionControls} from "./components/ExpressionControls";
 import {FishAudioControls} from "./components/FishAudioControls";
+import {FishVoiceManager} from "./components/FishVoiceManager";
 import {GenerateBar} from "./components/GenerateBar";
 import {OutputControls} from "./components/OutputControls";
 import {ScriptEditor} from "./components/ScriptEditor";
 import {VoiceControls} from "./components/VoiceControls";
 import {useGeneration} from "./hooks/useGeneration";
-import type {AppConfig, ExpressionPreset, ExpressionValues, FishDeliveryStyle, Gender, OutputFormat, StatusResponse, TtsEngine} from "./types";
+import type {AppConfig, ExpressionPreset, ExpressionValues, FishDeliveryStyle, FishVoiceReference, Gender, OutputFormat, StatusResponse, TtsEngine} from "./types";
 
 
 type PresetId = "neutral" | "warm" | "calm" | "bright" | "serious" | "dramatic";
 const FALLBACK_VALUES = {speed: 1, pitch: 0, tempo: 1, pause_scale: 1, volume: 1};
 
 export function App() {
+  const [page, setPage] = useState<"studio" | "voices">(() => window.location.hash === "#voices" ? "voices" : "studio");
+  const [libraryRevision, setLibraryRevision] = useState(0);
   const [config, setConfig] = useState<AppConfig | null>(null);
   const [status, setStatus] = useState<StatusResponse | null>(null);
   const [loadError, setLoadError] = useState<string | null>(null);
   const [text, setText] = useState("");
-  const [engine, setEngine] = useState<TtsEngine>("kokoro");
+  const [engine, setEngine] = useState<TtsEngine>("fish_audio");
   const [storyboardSegments, setStoryboardSegments] = useState<string[] | null>(null);
   const [language, setLanguage] = useState("a");
   const [gender, setGender] = useState<Gender | "all">("all");
@@ -37,7 +40,7 @@ export function App() {
   const [custom, setCustom] = useState(false);
   const [format, setFormat] = useState<OutputFormat>("wav");
   const [normalize, setNormalize] = useState(true);
-  const [fishVoice, setFishVoice] = useState("");
+  const [fishVoice, setFishVoice] = useState("b0204e37cbc94a16954c78697b844af2");
   const [fishStyle, setFishStyle] = useState<FishDeliveryStyle>("natural");
   const [fishCustomStyle, setFishCustomStyle] = useState("");
   const [openRouterApiKey, setOpenRouterApiKey] = useState("");
@@ -45,11 +48,24 @@ export function App() {
   const speechText = storyboardSegments === null ? text : storyboardSegments.join("\n\n");
 
   useEffect(() => {
+    const navigate = () => setPage(window.location.hash === "#voices" ? "voices" : "studio");
+    window.addEventListener("hashchange", navigate);
+    return () => window.removeEventListener("hashchange", navigate);
+  }, []);
+
+  function libraryChanged(saved: FishVoiceReference | null, previous?: FishVoiceReference) {
+    if (previous) setFishVoice((current) => current === previous.reference_id ? saved?.reference_id ?? "" : current);
+    setLibraryRevision((value) => value + 1);
+  }
+
+  useEffect(() => {
     const controller = new AbortController();
     Promise.all([getConfig(controller.signal), getStatus(controller.signal)])
       .then(([nextConfig, nextStatus]) => {
         setConfig(nextConfig);
         setStatus(nextStatus);
+        setEngine(nextConfig.defaults.engine);
+        setFishVoice(nextConfig.defaults.fish_voice);
         setLanguage(nextConfig.defaults.language);
         setPrimary(nextConfig.defaults.voice);
         setFormat(nextConfig.defaults.format);
@@ -149,8 +165,14 @@ export function App() {
 
   return (
     <div className="app-shell">
-      <AppHeader status={status} />
-      <main id="workspace">
+      <AppHeader status={status} page={page} />
+      {page === "voices" && <FishVoiceManager onChanged={libraryChanged} onUse={(voice) => {
+        setFishVoice(voice.reference_id);
+        setLibraryRevision((value) => value + 1);
+        setEngine("fish_audio");
+        window.location.hash = "workspace";
+      }} />}
+      <main id="workspace" hidden={page === "voices"}>
         {(loadError || generation.error) && <ErrorNotice message={loadError ?? generation.error!} onClose={() => {setLoadError(null); generation.clearError();}} />}
         <div className="workspace-grid">
           <ScriptEditor
@@ -188,6 +210,7 @@ export function App() {
                 onStyle={setFishStyle}
                 onCustomStyle={setFishCustomStyle}
                 onApiKey={setOpenRouterApiKey}
+                libraryRevision={libraryRevision}
               />
             )}
           </aside>

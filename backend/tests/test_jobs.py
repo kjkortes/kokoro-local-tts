@@ -290,6 +290,48 @@ def test_fish_job_uses_one_remote_request_and_saves_the_returned_mp3(tmp_path: P
     manager.shutdown()
 
 
+def test_fish_storyboard_transcript_keeps_source_phrase_rows(tmp_path: Path) -> None:
+    from kokoro_app.fish_audio import FishAudioResult
+
+    class FakeFishClient:
+        def synthesize(self, *args, **kwargs):
+            return FishAudioResult(b"remote mp3", "audio/mpeg", "generation-789")
+
+    class FakeTranscriber:
+        def transcribe(self, *args, **kwargs):
+            return WhisperTranscript(
+                duration=1.2,
+                segments=(TimedSegment("Source first. Source second.", 0.1, 1.1),),
+                words=(
+                    TimedWord("Source", 0.1, 0.3),
+                    TimedWord("first.", 0.35, 0.6),
+                    TimedWord("Source", 0.7, 0.82),
+                    TimedWord("second.", 0.86, 1.1),
+                ),
+            )
+
+    rows = ["Source first.", "Source second."]
+    manager = JobManager(
+        FakeEngine(),
+        tmp_path,
+        encoder=lambda *args, **kwargs: None,
+        fish_client=FakeFishClient(),
+        fish_transcriber=FakeTranscriber(),
+    )
+    record = manager.create(GenerationRequest(
+        engine="fish_audio",
+        text="\n\n".join(rows),
+        segments=rows,
+    ))
+    wait_for(manager, record.id, JobState.complete)
+
+    assert manager.get(record.id).segments == [
+        {"text": "Source first.", "start": 0.1, "end": 0.6, "paragraph_end": True},
+        {"text": "Source second.", "start": 0.7, "end": 1.1, "paragraph_end": True},
+    ]
+    manager.shutdown()
+
+
 def test_kokoro_job_does_not_require_or_call_openrouter(tmp_path: Path, monkeypatch) -> None:
     monkeypatch.delenv("OPENROUTER_API_KEY", raising=False)
 

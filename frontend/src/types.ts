@@ -33,6 +33,23 @@ export interface VoiceInfo {
   gender: Gender;
 }
 
+export interface FishVoiceInput {
+  name: string;
+  description: string;
+  reference_id: string;
+}
+
+export interface FishVoiceReference extends FishVoiceInput {
+  id: string;
+}
+
+export interface FishVoicePage {
+  items: FishVoiceReference[];
+  total: number;
+  page: number;
+  page_size: number;
+}
+
 export interface ExpressionValues {
   speed?: number;
   pitch?: number;
@@ -56,7 +73,14 @@ export interface AppConfig {
   voices: VoiceInfo[];
   presets: ExpressionPreset[];
   formats: OutputFormat[];
-  defaults: {language: string; voice: string; preset: string; format: OutputFormat};
+  defaults: {
+    engine: TtsEngine;
+    fish_voice: string;
+    language: string;
+    voice: string;
+    preset: string;
+    format: OutputFormat;
+  };
   limits: Record<string, {min: number; max: number}>;
   openrouter_configured?: boolean;
 }
