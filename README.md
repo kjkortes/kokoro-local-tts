@@ -77,7 +77,7 @@ The first start can take several minutes while Kokoro downloads and loads. The h
 - **Continuous storyboard narration** joins speech rows into one natural delivery while preserving each source row in the timestamped transcript and downloads.
 - **Output** supports WAV, MP3, FLAC, and OGG at Kokoro's native 24 kHz, with optional loudness normalization.
 - **Long scripts** are split at paragraphs and sentence boundaries, synthesized in sequence, and joined with controlled pauses. Progress and cancellation remain available during generation.
-- **Timestamped transcripts** can be viewed, copied, or downloaded as readable text or JSON. American and British English Kokoro voices provide seekable word-level timestamps derived directly from Kokoro's synthesis durations. Fish Audio results are transcribed locally with Whisper and include both segment- and word-level timestamps.
+- **Timestamped transcripts** can be viewed, copied, or downloaded as readable text or JSON. American and British English Kokoro voices provide seekable word-level timestamps derived directly from Kokoro's synthesis durations. Fish Audio results use local **WhisperX** word alignment by default; **Whisper (faster-whisper)** remains selectable under **Timestamp engine**.
 
 Generated files live under `runtime/audio/` and are pruned after 24 hours when the app starts. Download anything you want to keep.
 
@@ -123,7 +123,11 @@ Use **Copy ID** beside a voice reference to copy just its reference ID. **Open i
 
 The voice library is stored in `runtime/fish_voices.sqlite3`, separate from expiring audio files. Back up this file to keep your saved names, descriptions, and references. Existing libraries are upgraded automatically; older voices start with an empty description. The list loads when Fish controls open; use **Reload voices** to pick up changes made on another device. Deleting a library entry only removes the local shortcut, not the voice on Fish Audio. API keys are never stored in the library.
 
-After OpenRouter returns the MP3, the app runs the multilingual `small` [faster-whisper](https://github.com/SYSTRAN/faster-whisper) model locally with CPU int8 inference and word timestamps. The first Fish generation downloads this Whisper model from Hugging Face; later runs reuse the local cache. Audio is not sent to another transcription service. Because these timestamps come from speech recognition rather than Fish Audio provider alignment, recognized text can occasionally differ slightly from the submitted script. The interface labels these results **Timed locally with Whisper**.
+Under **Timestamps → Timestamp engine**, choose **WhisperX — word alignment (default)** or **Whisper — faster-whisper**. The API also defaults to `timestamp_engine: "whisperx"`; submit `"whisper"` to use the original word timestamps.
+
+After OpenRouter returns the MP3, the app runs the multilingual `small` [faster-whisper](https://github.com/SYSTRAN/faster-whisper) model locally with CPU int8 inference. With **WhisperX**, the detected speech language selects a local alignment model, and [WhisperX](https://github.com/m-bain/whisperX) aligns the recognized words to the audio. The first run downloads the recognition and alignment models; later runs reuse their local caches. The recognition model is shared between the two timestamp modes. Audio is not sent to another transcription service. Because text comes from speech recognition, recognized text can occasionally differ slightly from the submitted script. The panel identifies the actual mode as **Timed locally with WhisperX** or **Timed locally with Whisper**.
+
+WhisperX adds CPU processing and a language-specific model download. If alignment is unavailable for the detected language, or its model cannot be downloaded, the app reports the problem; choose **Whisper — faster-whisper** and retry. It does not silently change timestamp engines. Kokoro continues using its own synthesis timing.
 
 To trade more processing time and memory for a larger Whisper model, set `KOKORO_WHISPER_MODEL` in the shell before launch, for example:
 
@@ -172,7 +176,7 @@ KOKORO_SMOKE=1 uv run --extra test pytest backend/tests/test_inference_smoke.py 
 
 - **Fish Audio asks for an API key:** set `OPENROUTER_API_KEY` before starting the server, or enter the key in Fish mode. Kokoro mode never needs it.
 - **Fish Audio is rate-limited or unavailable:** the app intentionally does not switch to a paid model. Wait and retry later, or switch back to Kokoro Local.
-- **Fish Audio finishes but timestamping fails:** make sure the first Fish run has internet access so faster-whisper can download its local model, and confirm there is enough free disk space. Retry after the model is cached.
+- **Fish Audio finishes but timestamping fails:** make sure the first Fish run has internet access so Whisper and WhisperX can download their local models, and confirm there is enough free disk space. For unsupported alignment languages or download problems, choose **Whisper — faster-whisper** under **Timestamp engine** and retry. After updating the app, run `uv sync` (or restart with `./run.sh`) to install its dependencies.
 - **Port 8000 is already in use:** `run.sh` now detects an existing Kokoro instance and prints its address instead of starting a duplicate. Stop it with `./run.sh --stop`, or use `KOKORO_PORT=8080 ./run.sh` to start another instance. To inspect the listener manually, install the required tools with `sudo apt-get install -y curl iproute2 lsof procps util-linux`, then run `lsof -nP -iTCP:8000 -sTCP:LISTEN` (or `sudo ss -ltnp 'sport = :8000'`). Note the PID, inspect it with `ps -fp <PID>`, and stop it gracefully with `kill <PID>`. Only kill a process after confirming it belongs to you; avoid `kill -9` unless an ordinary stop fails.
 - **Phonemizer fails to load:** Kokoro installs a bundled `espeak-ng` loader. If your Linux distribution cannot use it, install the system fallback with `sudo apt-get install -y espeak-ng`.
 - **FFmpeg is missing or cannot encode a format:** run `sudo apt-get install -y ffmpeg` and verify `ffmpeg -version`.

@@ -260,6 +260,7 @@ def test_fish_job_uses_one_remote_request_and_saves_the_returned_mp3(tmp_path: P
         text="[curious]\nWhy do airplane windows have rounded corners?",
         fish_voice="voice-reference",
         fish_style="documentary",
+        timestamp_engine="whisper",
         openrouter_api_key="request-key",
     ))
     wait_for(manager, record.id, JobState.complete)
@@ -322,6 +323,7 @@ def test_fish_storyboard_transcript_keeps_source_phrase_rows(tmp_path: Path) -> 
         engine="fish_audio",
         text="\n\n".join(rows),
         segments=rows,
+        timestamp_engine="whisper",
     ))
     wait_for(manager, record.id, JobState.complete)
 
@@ -345,4 +347,31 @@ def test_kokoro_job_does_not_require_or_call_openrouter(tmp_path: Path, monkeypa
     record = manager.create(GenerationRequest(text="Offline speech."))
     wait_for(manager, record.id, JobState.complete)
     assert manager.get(record.id).result_path.read_bytes() == b"local audio"
+    manager.shutdown()
+
+
+@pytest.mark.parametrize("selection, expected", [(None, "whisperx"), ("whisperx", "whisperx"), ("whisper", "whisper")])
+def test_fish_job_uses_the_selected_timestamp_engine(tmp_path: Path, selection: str | None, expected: str) -> None:
+    from kokoro_app.fish_audio import FishAudioResult
+
+    calls = []
+
+    class FishClient:
+        def synthesize(self, *args, **kwargs):
+            return FishAudioResult(b"mp3", "audio/mpeg")
+
+    class Transcriber:
+        def __init__(self, name):
+            self.name = name
+
+        def transcribe(self, path, *, prompt=None):
+            calls.append(self.name)
+            return WhisperTranscript(1.0, (TimedSegment("Hello.", 0.1, 0.9),), (TimedWord("Hello.", 0.1, 0.9),))
+
+    manager = JobManager(FakeEngine(), tmp_path, fish_client=FishClient(), fish_transcriber=Transcriber("whisper"), whisperx_transcriber=Transcriber("whisperx"))
+    settings = {"timestamp_engine": selection} if selection else {}
+    record = manager.create(GenerationRequest(engine="fish_audio", text="Hello.", **settings))
+    wait_for(manager, record.id, JobState.complete)
+    assert calls == [expected]
+    assert manager.get(record.id).timing_source == expected
     manager.shutdown()

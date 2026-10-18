@@ -173,8 +173,8 @@ export function AudioTransport({result}: {result: JobResponse}) {
         <section className="transcript-panel" aria-label="Timestamped transcript">
           <div className="transcript-heading">
             <h2>Timestamped transcript</h2>
-            {result.timing_source === "whisper" && (
-              <span className="timing-source">Timed locally with Whisper</span>
+            {(result.timing_source === "whisper" || result.timing_source === "whisperx") && (
+              <span className="timing-source">Timed locally with {result.timing_source === "whisperx" ? "WhisperX" : "Whisper"}</span>
             )}
             {words.length > 0 && (
               <div className="transcript-view-switch" aria-label="Timestamp granularity">

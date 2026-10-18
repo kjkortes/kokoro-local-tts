@@ -150,6 +150,7 @@ def create_app(
             defaults={
                 "engine": "fish_audio",
                 "fish_voice": "b0204e37cbc94a16954c78697b844af2",
+                "timestamp_engine": "whisperx",
                 "language": "a",
                 "voice": "af_heart",
                 "preset": "neutral",

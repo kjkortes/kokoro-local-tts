@@ -1,4 +1,4 @@
-import type {FishDeliveryStyle} from "../types";
+import type {FishDeliveryStyle, TimestampEngine} from "../types";
 import {FishVoiceLibrary} from "./FishVoiceLibrary";
 
 
@@ -17,6 +17,8 @@ const STYLE_OPTIONS: Array<{id: FishDeliveryStyle; name: string}> = [
 interface Props {
   voice: string;
   style: FishDeliveryStyle;
+  timestampEngine: TimestampEngine;
+  onTimestampEngine: (value: TimestampEngine) => void;
   customStyle: string;
   apiKey: string;
   environmentKeyConfigured: boolean;
@@ -57,6 +59,18 @@ export function FishAudioControls(props: Props) {
           </label>
         )}
         <p className="control-help">Bracketed instructions already in your script are preserved.</p>
+      </section>
+      <section className="control-section fish-section" aria-labelledby="fish-timing-heading">
+        <div className="control-title"><h2 id="fish-timing-heading">Timestamps</h2><span>Local</span></div>
+        <label className="field">Timestamp engine
+          <select value={props.timestampEngine} onChange={(event) => props.onTimestampEngine(event.target.value as TimestampEngine)}>
+            <option value="whisperx">WhisperX — word alignment (default)</option>
+            <option value="whisper">Whisper — faster-whisper</option>
+          </select>
+        </label>
+        <p className="control-help">{props.timestampEngine === "whisperx"
+          ? "Aligns recognized words to the audio on this CPU. The first run downloads a language-specific alignment model."
+          : "Uses Whisper word timestamps on this CPU, without an additional alignment model."}</p>
       </section>
       <section className="control-section fish-section" aria-labelledby="openrouter-heading">
         <div className="control-title"><h2 id="openrouter-heading">OpenRouter</h2><span>Secret</span></div>

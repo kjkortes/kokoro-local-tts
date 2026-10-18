@@ -13,7 +13,7 @@ import {OutputControls} from "./components/OutputControls";
 import {ScriptEditor} from "./components/ScriptEditor";
 import {VoiceControls} from "./components/VoiceControls";
 import {useGeneration} from "./hooks/useGeneration";
-import type {AppConfig, ExpressionPreset, ExpressionValues, FishDeliveryStyle, FishVoiceReference, Gender, OutputFormat, StatusResponse, TtsEngine} from "./types";
+import type {AppConfig, ExpressionPreset, ExpressionValues, FishDeliveryStyle, FishVoiceReference, Gender, OutputFormat, StatusResponse, TimestampEngine, TtsEngine} from "./types";
 
 
 type PresetId = "neutral" | "warm" | "calm" | "bright" | "serious" | "dramatic";
@@ -42,6 +42,7 @@ export function App() {
   const [normalize, setNormalize] = useState(true);
   const [fishVoice, setFishVoice] = useState("b0204e37cbc94a16954c78697b844af2");
   const [fishStyle, setFishStyle] = useState<FishDeliveryStyle>("natural");
+  const [timestampEngine, setTimestampEngine] = useState<TimestampEngine>("whisperx");
   const [fishCustomStyle, setFishCustomStyle] = useState("");
   const [openRouterApiKey, setOpenRouterApiKey] = useState("");
   const generation = useGeneration();
@@ -66,6 +67,7 @@ export function App() {
         setStatus(nextStatus);
         setEngine(nextConfig.defaults.engine);
         setFishVoice(nextConfig.defaults.fish_voice);
+        setTimestampEngine(nextConfig.defaults.timestamp_engine ?? "whisperx");
         setLanguage(nextConfig.defaults.language);
         setPrimary(nextConfig.defaults.voice);
         setFormat(nextConfig.defaults.format);
@@ -132,6 +134,7 @@ export function App() {
         segments: storyboardSegments ?? undefined,
         fish_voice: fishVoice.trim() || undefined,
         fish_style: fishStyle,
+        timestamp_engine: timestampEngine,
         fish_custom_style: fishStyle === "custom" ? fishCustomStyle.trim() : undefined,
         openrouter_api_key: openRouterApiKey.trim() || undefined,
         output_format: "mp3",
@@ -203,6 +206,8 @@ export function App() {
               <FishAudioControls
                 voice={fishVoice}
                 style={fishStyle}
+                timestampEngine={timestampEngine}
+                onTimestampEngine={setTimestampEngine}
                 customStyle={fishCustomStyle}
                 apiKey={openRouterApiKey}
                 environmentKeyConfigured={Boolean(config.openrouter_configured)}

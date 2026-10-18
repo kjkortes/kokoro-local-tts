@@ -19,8 +19,8 @@ from kokoro_app.fish_audio import (
     FishAudioOpenRouterClient,
     prepare_fish_input,
 )
-from kokoro_app.schemas import GenerationRequest, JobState, TtsEngine
-from kokoro_app.transcription import AudioTranscriber, WhisperTranscriber
+from kokoro_app.schemas import GenerationRequest, JobState, TimestampEngine, TtsEngine
+from kokoro_app.transcription import AudioTranscriber, WhisperTranscript, WhisperTranscriber, WhisperXTranscriber
 
 
 Encoder = Callable[..., None]
@@ -197,6 +197,7 @@ class JobManager:
         encoder: Encoder = encode_audio,
         fish_client: FishAudioOpenRouterClient | None = None,
         fish_transcriber: AudioTranscriber | None = None,
+        whisperx_transcriber: AudioTranscriber | None = None,
     ) -> None:
         self.engine = engine
         self.output_dir = Path(output_dir)
@@ -204,6 +205,7 @@ class JobManager:
         self.encoder = encoder
         self.fish_client = fish_client or FishAudioOpenRouterClient()
         self.fish_transcriber = fish_transcriber or WhisperTranscriber()
+        self.whisperx_transcriber = whisperx_transcriber or WhisperXTranscriber(recognizer=self.fish_transcriber)
         self._records: dict[str, JobRecord] = {}
         self._cancel_events: dict[str, threading.Event] = {}
         self._lock = threading.RLock()
@@ -406,8 +408,11 @@ class JobManager:
             record.result_path = destination
             record.filename = _filename_for(record.request).rsplit(".", 1)[0] + ".mp3"
             record.generation_id = result.generation_id
-        self._set(record, JobState.processing, "Creating timestamps with local Whisper", 0.9)
-        transcript = self.fish_transcriber.transcribe(
+        use_whisperx = record.request.timestamp_engine == TimestampEngine.whisperx
+        transcriber = self.whisperx_transcriber if use_whisperx else self.fish_transcriber
+        label = "WhisperX" if use_whisperx else "Whisper"
+        self._set(record, JobState.processing, f"Creating timestamps with local {label}", 0.9)
+        transcript = transcriber.transcribe(
             destination,
             prompt=record.request.text,
         )
@@ -421,7 +426,7 @@ class JobManager:
                 else [segment.as_dict() for segment in transcript.segments]
             )
             record.words = [word.as_dict() for word in transcript.words]
-            record.timing_source = "whisper"
+            record.timing_source = record.request.timestamp_engine.value
         self._set(record, JobState.complete, "Audio ready", 1.0)
 
     def prune(self, older_than_seconds: float = 86_400) -> int:

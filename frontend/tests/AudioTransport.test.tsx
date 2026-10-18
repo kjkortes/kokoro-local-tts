@@ -105,6 +105,12 @@ it("identifies Whisper-derived timing for Fish Audio transcripts", () => {
   expect(screen.getByText("Timed locally with Whisper")).toBeVisible();
 });
 
+it("identifies WhisperX alignment in the timestamp panel", () => {
+  vi.stubGlobal("fetch", vi.fn(async () => new Response(new ArrayBuffer(8))));
+  render(<AudioTransport result={{...result, timing_source: "whisperx"}} />);
+  expect(screen.getByText("Timed locally with WhisperX")).toBeVisible();
+});
+
 it("switches between the readable transcript and timescript JSON", async () => {
   vi.stubGlobal("fetch", vi.fn(async () => new Response(new ArrayBuffer(8))));
   const user = userEvent.setup();

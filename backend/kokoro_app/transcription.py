@@ -6,7 +6,7 @@ import re
 import threading
 from dataclasses import dataclass
 from pathlib import Path
-from typing import Callable, Protocol
+from typing import Any, Callable, Protocol
 
 
 class TranscriptionError(RuntimeError):
@@ -43,6 +43,7 @@ class WhisperTranscript:
     duration: float
     segments: tuple[TimedSegment, ...]
     words: tuple[TimedWord, ...]
+    language: str | None = None
 
 
 class AudioTranscriber(Protocol):
@@ -162,4 +163,81 @@ class WhisperTranscriber:
             segments[-1].end,
             words[-1].end if words else 0.0,
         )
-        return WhisperTranscript(duration, tuple(segments), tuple(words))
+        return WhisperTranscript(duration, tuple(segments), tuple(words), getattr(info, "language", None))
+
+
+class WhisperXTranscriber:
+    """Recognize locally, then use WhisperX's language-specific forced alignment."""
+
+    def __init__(self, *, recognizer: AudioTranscriber | None = None, alignment_backend: Any = None) -> None:
+        self.recognizer = recognizer or WhisperTranscriber()
+        self._backend = alignment_backend
+        self._models: dict[str, tuple[Any, Any]] = {}
+        self._model_lock = threading.Lock()
+
+    def _load_backend(self) -> Any:
+        if self._backend is None:
+            try:
+                import whisperx
+
+                self._backend = whisperx
+            except Exception as error:
+                raise TranscriptionError(
+                    "WhisperX could not be loaded. Run `uv sync` and restart the app, "
+                    "or select Whisper (faster-whisper) for timestamps."
+                ) from error
+        return self._backend
+
+    def _alignment_model(self, backend: Any, language: str) -> tuple[Any, Any]:
+        with self._model_lock:
+            if language not in self._models:
+                try:
+                    self._models[language] = backend.load_align_model(language_code=language, device="cpu")
+                except Exception as error:
+                    raise TranscriptionError(
+                        f"WhisperX could not load alignment for language '{language}'. "
+                        "Check the network for the first model download, or select Whisper (faster-whisper)."
+                    ) from error
+            return self._models[language]
+
+    def transcribe(self, audio_path: Path, *, prompt: str | None = None) -> WhisperTranscript:
+        backend = self._load_backend()
+        recognized = self.recognizer.transcribe(audio_path, prompt=prompt)
+        if not recognized.language:
+            raise TranscriptionError("WhisperX could not determine the speech language. Select Whisper (faster-whisper) or retry with clearer speech.")
+        model, metadata = self._alignment_model(backend, recognized.language)
+        try:
+            audio = backend.load_audio(str(audio_path))
+            duration = len(audio) / 16_000
+            aligned = backend.align(
+                [{"text": segment.text, "start": segment.start, "end": segment.end} for segment in recognized.segments],
+                model, metadata, audio, "cpu", return_char_alignments=False,
+            )
+            segments: list[TimedSegment] = []
+            words: list[TimedWord] = []
+            for segment in aligned.get("segments", []):
+                text = str(segment.get("text", "")).strip()
+                bounds = _aligned_bounds(segment, duration)
+                if text and bounds is not None:
+                    segments.append(TimedSegment(text, *bounds))
+                for word in segment.get("words", []):
+                    text = str(word.get("word", "")).strip()
+                    bounds = _aligned_bounds(word, duration)
+                    if text and bounds is not None:
+                        words.append(TimedWord(text, *bounds))
+        except Exception as error:
+            raise TranscriptionError(
+                "WhisperX could not align the Fish Audio result. Retry or select Whisper (faster-whisper) for timestamps."
+            ) from error
+        if not segments or not words:
+            raise TranscriptionError(
+                "WhisperX did not produce aligned words. Retry or select Whisper (faster-whisper) for timestamps."
+            )
+        return WhisperTranscript(duration, tuple(segments), tuple(words), recognized.language)
+
+
+def _aligned_bounds(item: dict, duration: float) -> tuple[float, float] | None:
+    start, end = _timestamp(item.get("start")), _timestamp(item.get("end"))
+    if start is None or end is None or end < start or start >= duration:
+        return None
+    return start, min(end, duration)

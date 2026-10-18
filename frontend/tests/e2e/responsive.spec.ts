@@ -55,6 +55,9 @@ for (const viewport of [{width: 375, height: 812}, {width: 1440, height: 900}]) 
     await page.goto("/");
     await page.getByRole("radio", {name: "Fish Audio S2.1 Pro Free — OpenRouter"}).check();
     await expect(page.getByRole("combobox", {name: "Fish voice"})).toHaveValue("starter");
+    await expect(page.getByLabel("Timestamp engine")).toHaveValue("whisperx");
+    await page.getByLabel("Timestamp engine").selectOption("whisper");
+    await expect(page.getByLabel("Timestamp engine")).toHaveValue("whisper");
     await page.getByRole("button", {name: "Add voice", exact: true}).click();
     await expect(page.getByLabel("Name")).toBeVisible();
     await expect(page.getByLabel("Reference ID", {exact: true})).toBeVisible();

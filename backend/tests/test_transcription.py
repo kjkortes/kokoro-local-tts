@@ -3,7 +3,7 @@ from types import SimpleNamespace
 
 import pytest
 
-from kokoro_app.transcription import TranscriptionError, WhisperTranscriber
+from kokoro_app.transcription import TimedSegment, TimedWord, TranscriptionError, WhisperTranscript, WhisperTranscriber, WhisperXTranscriber
 
 
 class FakeWhisperModel:
@@ -32,7 +32,7 @@ class FakeWhisperModel:
                 ],
             ),
         ])
-        return segments, SimpleNamespace(duration=2.75)
+        return segments, SimpleNamespace(duration=2.75, language="en")
 
 
 def test_transcriber_uses_word_timestamps_and_returns_downloadable_timing_data(
@@ -65,6 +65,7 @@ def test_transcriber_uses_word_timestamps_and_returns_downloadable_timing_data(
         },
     )]
     assert result.duration == pytest.approx(2.75)
+    assert result.language == "en"
     assert [segment.as_dict() for segment in result.segments] == [
         {"text": "Hello world.", "start": 0.12, "end": 1.18, "paragraph_end": True},
         {"text": "Accurate timing.", "start": 1.34, "end": 2.42, "paragraph_end": True},
@@ -107,3 +108,73 @@ def test_transcriber_rejects_audio_without_recognized_speech(tmp_path: Path) -> 
 
     with pytest.raises(TranscriptionError, match="did not detect any speech"):
         transcriber.transcribe(audio_path)
+
+
+class FakeRecognizer:
+    def transcribe(self, audio_path: Path, *, prompt: str | None = None):
+        return WhisperTranscript(
+            duration=2.0,
+            segments=(TimedSegment("Hello world.", 0.0, 1.9),),
+            words=(TimedWord("Hello", 0.0, 1.0),),
+            language="en",
+        )
+
+
+class FakeWhisperX:
+    def __init__(self):
+        self.languages = []
+        self.transcripts = []
+
+    def load_audio(self, path):
+        return [0.0] * 32_000
+
+    def load_align_model(self, *, language_code, device):
+        assert device == "cpu"
+        self.languages.append(language_code)
+        return "alignment-model", {"language": language_code}
+
+    def align(self, segments, model, metadata, audio, device, *, return_char_alignments):
+        assert model == "alignment-model"
+        assert metadata == {"language": "en"}
+        assert device == "cpu"
+        assert return_char_alignments is False
+        self.transcripts.append(segments)
+        return {"segments": [{"text": "Hello world.", "start": 0.15, "end": 1.6, "words": [
+            {"word": "Hello", "start": 0.15, "end": 0.55},
+            {"word": "world.", "start": 0.65, "end": 1.6},
+            {"word": "untimed"},
+            {"word": "invalid", "start": float("nan"), "end": 1.8},
+        ]}]}
+
+
+def test_whisperx_uses_aligned_words_and_reuses_the_language_model(tmp_path: Path) -> None:
+    backend = FakeWhisperX()
+    transcriber = WhisperXTranscriber(recognizer=FakeRecognizer(), alignment_backend=backend)
+    result = transcriber.transcribe(tmp_path / "fish.mp3", prompt="[calm] Hello world.")
+    assert result.duration == 2.0
+    assert result.language == "en"
+    assert result.segments == (TimedSegment("Hello world.", 0.15, 1.6),)
+    assert result.words == (TimedWord("Hello", 0.15, 0.55), TimedWord("world.", 0.65, 1.6))
+    assert backend.transcripts == [[{"text": "Hello world.", "start": 0.0, "end": 1.9}]]
+    transcriber.transcribe(tmp_path / "fish.mp3")
+    assert backend.languages == ["en"]
+
+
+def test_whisperx_reports_unsupported_alignment_languages_without_silent_fallback(tmp_path: Path) -> None:
+    class UnsupportedBackend(FakeWhisperX):
+        def load_align_model(self, **kwargs):
+            raise ValueError("No alignment model for this language")
+
+    transcriber = WhisperXTranscriber(recognizer=FakeRecognizer(), alignment_backend=UnsupportedBackend())
+    with pytest.raises(TranscriptionError, match="faster-whisper"):
+        transcriber.transcribe(tmp_path / "fish.mp3")
+
+
+def test_whisperx_rejects_results_without_aligned_words(tmp_path: Path) -> None:
+    class UnalignedBackend(FakeWhisperX):
+        def align(self, *args, **kwargs):
+            return {"segments": [{"text": "Hello world.", "start": 0.0, "end": 1.9, "words": []}]}
+
+    transcriber = WhisperXTranscriber(recognizer=FakeRecognizer(), alignment_backend=UnalignedBackend())
+    with pytest.raises(TranscriptionError, match="align"):
+        transcriber.transcribe(tmp_path / "fish.mp3")

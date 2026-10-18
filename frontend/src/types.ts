@@ -1,6 +1,7 @@
 export type Gender = "female" | "male";
 export type OutputFormat = "wav" | "mp3" | "flac" | "ogg";
 export type TtsEngine = "kokoro" | "fish_audio";
+export type TimestampEngine = "whisperx" | "whisper";
 export type FishDeliveryStyle =
   | "natural"
   | "documentary"
@@ -76,6 +77,7 @@ export interface AppConfig {
   defaults: {
     engine: TtsEngine;
     fish_voice: string;
+    timestamp_engine?: TimestampEngine;
     language: string;
     voice: string;
     preset: string;
@@ -114,6 +116,7 @@ export interface FishGenerationRequest extends GenerationRequestBase {
   engine: "fish_audio";
   fish_voice?: string;
   fish_style: FishDeliveryStyle;
+  timestamp_engine?: TimestampEngine;
   fish_custom_style?: string;
   openrouter_api_key?: string;
   output_format: "mp3";
@@ -147,5 +150,5 @@ export interface JobResponse {
   segments: TranscriptSegment[];
   words?: TranscriptWord[];
   transcript: string | null;
-  timing_source?: "kokoro" | "whisper" | null;
+  timing_source?: "kokoro" | "whisper" | "whisperx" | null;
 }

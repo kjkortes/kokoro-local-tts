@@ -25,6 +25,11 @@ class TtsEngine(StrEnum):
     fish_audio = "fish_audio"
 
 
+class TimestampEngine(StrEnum):
+    whisperx = "whisperx"
+    whisper = "whisper"
+
+
 class FishDeliveryStyle(StrEnum):
     natural = "natural"
     documentary = "documentary"
@@ -110,6 +115,7 @@ class GenerationRequest(BaseModel):
     normalize: bool = True
     fish_voice: str | None = Field(default=None, max_length=256)
     fish_style: FishDeliveryStyle = FishDeliveryStyle.natural
+    timestamp_engine: TimestampEngine = TimestampEngine.whisperx
     fish_custom_style: str | None = Field(default=None, max_length=500)
     openrouter_api_key: SecretStr | None = Field(default=None, exclude=True)
 
@@ -195,7 +201,7 @@ class JobResponse(BaseModel):
     segments: list[TranscriptSegment] = Field(default_factory=list)
     words: list[TranscriptWord] = Field(default_factory=list)
     transcript: str | None = None
-    timing_source: Literal["kokoro", "whisper"] | None = None
+    timing_source: Literal["kokoro", "whisper", "whisperx"] | None = None
 
 
 class ErrorBody(BaseModel):
