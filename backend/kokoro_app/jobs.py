@@ -5,7 +5,7 @@ import threading
 import time
 import uuid
 from concurrent.futures import ThreadPoolExecutor
-from dataclasses import dataclass, field
+from dataclasses import dataclass, field, replace
 from difflib import SequenceMatcher
 from pathlib import Path
 from typing import Callable
@@ -19,7 +19,7 @@ from kokoro_app.fish_audio import (
     FishAudioOpenRouterClient,
     prepare_fish_input,
 )
-from kokoro_app.schemas import GenerationRequest, JobState, TimestampEngine, TtsEngine
+from kokoro_app.schemas import GenerationRequest, JobState, TimestampEngine, TranscriptionState, TtsEngine
 from kokoro_app.transcription import AudioTranscriber, WhisperTranscript, WhisperTranscriber, WhisperXTranscriber
 
 
@@ -41,10 +41,17 @@ class JobRecord:
     words: list[dict[str, str | float]] = field(default_factory=list)
     generation_id: str | None = None
     timing_source: str | None = None
+    transcription_state: TranscriptionState = TranscriptionState.idle
+    transcription_engine: str | None = None
+    transcription_error: dict[str, str] | None = None
     created_at: float = field(default_factory=time.time)
 
 
 class JobNotFoundError(KeyError):
+    pass
+
+
+class AudioNotReadyError(RuntimeError):
     pass
 
 
@@ -210,6 +217,7 @@ class JobManager:
         self._cancel_events: dict[str, threading.Event] = {}
         self._lock = threading.RLock()
         self._executor = ThreadPoolExecutor(max_workers=1, thread_name_prefix="kokoro-job")
+        self._transcript_executor = ThreadPoolExecutor(max_workers=1, thread_name_prefix="kokoro-transcript")
 
     def create(self, request: GenerationRequest) -> JobRecord:
         identifier = uuid.uuid4().hex
@@ -227,15 +235,51 @@ class JobManager:
             except KeyError as error:
                 raise JobNotFoundError(job_id) from error
 
+    def snapshot(self, job_id: str) -> JobRecord:
+        with self._lock:
+            return replace(self.get(job_id))
+
     def cancel(self, job_id: str) -> JobRecord:
         with self._lock:
             record = self.get(job_id)
+            if record.state == JobState.complete:
+                return record
             self._cancel_events[job_id].set()
             if record.state == JobState.queued:
                 record.state = JobState.cancelled
                 record.phase = "Cancelled"
                 record.progress = 0.0
             return record
+
+    def transcribe(self, job_id: str, timestamp_engine: TimestampEngine) -> JobRecord:
+        with self._lock:
+            record = self.get(job_id)
+            if record.state != JobState.complete or record.result_path is None or not record.result_path.is_file():
+                raise AudioNotReadyError("Generate audio before requesting a transcript.")
+            if record.transcription_state in {TranscriptionState.queued, TranscriptionState.transcribing}:
+                return record
+            record.transcription_error = None
+            if record.request.engine == TtsEngine.kokoro:
+                record.transcription_engine = "kokoro"
+                record.transcription_state = TranscriptionState.complete
+                return record
+            self._queue_transcription(record, timestamp_engine)
+            return record
+
+    def _queue_transcription(self, record: JobRecord, timestamp_engine: TimestampEngine) -> None:
+        record.transcription_engine = timestamp_engine.value
+        record.transcription_state = TranscriptionState.queued
+        self._transcript_executor.submit(self._run_transcription, record.id, timestamp_engine)
+
+    def _complete_audio(self, record: JobRecord) -> None:
+        with self._lock:
+            if record.request.auto_transcribe:
+                if record.request.engine == TtsEngine.fish_audio:
+                    self._queue_transcription(record, record.request.timestamp_engine)
+                else:
+                    record.transcription_engine = "kokoro"
+                    record.transcription_state = TranscriptionState.complete
+            self._set(record, JobState.complete, "Audio ready", 1.0)
 
     def _set(self, record: JobRecord, state: JobState, phase: str, progress: float) -> None:
         with self._lock:
@@ -360,7 +404,7 @@ class JobManager:
                                 (audio_start / SAMPLE_RATE + word.end) / expression.tempo, 6
                             ),
                         })
-            self._set(record, JobState.complete, "Audio ready", 1.0)
+            self._complete_audio(record)
         except Exception as error:
             if record.result_path:
                 record.result_path.unlink(missing_ok=True)
@@ -408,16 +452,29 @@ class JobManager:
             record.result_path = destination
             record.filename = _filename_for(record.request).rsplit(".", 1)[0] + ".mp3"
             record.generation_id = result.generation_id
-        use_whisperx = record.request.timestamp_engine == TimestampEngine.whisperx
+        self._complete_audio(record)
+
+    def _run_transcription(self, job_id: str, timestamp_engine: TimestampEngine) -> None:
+        record = self.get(job_id)
+        with self._lock:
+            record.transcription_state = TranscriptionState.transcribing
+        try:
+            self._transcribe_fish(record, timestamp_engine)
+        except Exception as error:
+            with self._lock:
+                record.transcription_state = TranscriptionState.failed
+                record.transcription_error = {
+                    "code": "transcription_failed", "message": "Transcription failed.",
+                    "action": str(error) or "Check the local server log and retry transcription.",
+                }
+
+    def _transcribe_fish(self, record: JobRecord, timestamp_engine: TimestampEngine) -> None:
+        use_whisperx = timestamp_engine == TimestampEngine.whisperx
         transcriber = self.whisperx_transcriber if use_whisperx else self.fish_transcriber
-        label = "WhisperX" if use_whisperx else "Whisper"
-        self._set(record, JobState.processing, f"Creating timestamps with local {label}", 0.9)
         transcript = transcriber.transcribe(
-            destination,
+            record.result_path,
             prompt=record.request.text,
         )
-        if self._cancelled(record):
-            return
         with self._lock:
             record.duration = transcript.duration
             record.segments = (
@@ -426,8 +483,8 @@ class JobManager:
                 else [segment.as_dict() for segment in transcript.segments]
             )
             record.words = [word.as_dict() for word in transcript.words]
-            record.timing_source = record.request.timestamp_engine.value
-        self._set(record, JobState.complete, "Audio ready", 1.0)
+            record.timing_source = timestamp_engine.value
+            record.transcription_state = TranscriptionState.complete
 
     def prune(self, older_than_seconds: float = 86_400) -> int:
         cutoff = time.time() - older_than_seconds
@@ -440,3 +497,4 @@ class JobManager:
 
     def shutdown(self) -> None:
         self._executor.shutdown(wait=True, cancel_futures=True)
+        self._transcript_executor.shutdown(wait=True, cancel_futures=True)

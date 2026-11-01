@@ -22,7 +22,8 @@ def fake_encode(pcm, destination: Path, *args, **kwargs) -> None:
 def wait_for(manager: JobManager, job_id: str, state: JobState) -> None:
     deadline = time.time() + 2
     while time.time() < deadline:
-        if manager.get(job_id).state == state:
+        record = manager.get(job_id)
+        if record.state == state and (state != JobState.complete or not record.request.auto_transcribe or record.transcription_state == "complete"):
             return
         time.sleep(0.01)
     raise AssertionError(f"job {job_id} never reached {state}")
@@ -261,6 +262,7 @@ def test_fish_job_uses_one_remote_request_and_saves_the_returned_mp3(tmp_path: P
         fish_voice="voice-reference",
         fish_style="documentary",
         timestamp_engine="whisper",
+        auto_transcribe=True,
         openrouter_api_key="request-key",
     ))
     wait_for(manager, record.id, JobState.complete)
@@ -324,6 +326,7 @@ def test_fish_storyboard_transcript_keeps_source_phrase_rows(tmp_path: Path) -> 
         text="\n\n".join(rows),
         segments=rows,
         timestamp_engine="whisper",
+        auto_transcribe=True,
     ))
     wait_for(manager, record.id, JobState.complete)
 
@@ -370,7 +373,7 @@ def test_fish_job_uses_the_selected_timestamp_engine(tmp_path: Path, selection: 
 
     manager = JobManager(FakeEngine(), tmp_path, fish_client=FishClient(), fish_transcriber=Transcriber("whisper"), whisperx_transcriber=Transcriber("whisperx"))
     settings = {"timestamp_engine": selection} if selection else {}
-    record = manager.create(GenerationRequest(engine="fish_audio", text="Hello.", **settings))
+    record = manager.create(GenerationRequest(engine="fish_audio", text="Hello.", auto_transcribe=True, **settings))
     wait_for(manager, record.id, JobState.complete)
     assert calls == [expected]
     assert manager.get(record.id).timing_source == expected

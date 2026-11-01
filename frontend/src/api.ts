@@ -1,4 +1,4 @@
-import type {AppConfig, FishVoiceInput, FishVoicePage, FishVoiceReference, GenerationRequest, JobResponse, StatusResponse} from "./types";
+import type {AppConfig, FishVoiceInput, FishVoicePage, FishVoiceReference, GenerationRequest, JobResponse, StatusResponse, TimestampEngine} from "./types";
 
 
 export class LocalApiError extends Error {
@@ -12,7 +12,8 @@ async function request<T>(url: string, init?: RequestInit): Promise<T> {
   let response: Response;
   try {
     response = await fetch(url, init);
-  } catch {
+  } catch (problem) {
+    if ((problem as Error).name === "AbortError") throw problem;
     throw new LocalApiError("The local Kokoro service is not reachable. Start the app and try again.");
   }
   if (!response.ok) {
@@ -59,6 +60,12 @@ export const createJob = (payload: GenerationRequest, signal?: AbortSignal) =>
 
 export const getJob = (identifier: string, signal?: AbortSignal) =>
   request<JobResponse>(`/api/jobs/${identifier}`, {signal});
+
+export const transcribeJob = (identifier: string, timestampEngine: TimestampEngine, signal?: AbortSignal) =>
+  request<JobResponse>(`/api/jobs/${identifier}/transcript`, {
+    method: "POST", headers: {"Content-Type": "application/json"},
+    body: JSON.stringify({timestamp_engine: timestampEngine}), signal,
+  });
 
 export const cancelJob = (identifier: string, signal?: AbortSignal) =>
   request<JobResponse>(`/api/jobs/${identifier}`, {method: "DELETE", signal});

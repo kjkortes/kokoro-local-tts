@@ -15,7 +15,7 @@ from kokoro_app.catalog import LANGUAGES, VOICES
 from kokoro_app.engine import KokoroEngine
 from kokoro_app.expressions import PRESETS
 from kokoro_app.fish_voices import FishVoiceLibrary, VoiceLibraryError
-from kokoro_app.jobs import JobManager, JobNotFoundError, JobRecord
+from kokoro_app.jobs import AudioNotReadyError, JobManager, JobNotFoundError, JobRecord
 from kokoro_app.schemas import (
     AppConfig,
     ExpressionPresetInfo,
@@ -26,6 +26,8 @@ from kokoro_app.schemas import (
     JobResponse,
     OutputFormat,
     StatusResponse,
+    TranscriptionRequest,
+    TranscriptionState,
 )
 
 
@@ -35,6 +37,7 @@ FRONTEND_DIST = Path(__file__).resolve().parents[2] / "frontend" / "dist"
 
 def _job_response(record: JobRecord) -> JobResponse:
     complete = record.state.value == "complete"
+    transcribed = complete and record.transcription_state == TranscriptionState.complete
     return JobResponse(
         id=record.id,
         state=record.state,
@@ -45,10 +48,14 @@ def _job_response(record: JobRecord) -> JobResponse:
         download_url=f"/api/jobs/{record.id}/download" if complete else None,
         filename=record.filename,
         duration=record.duration,
-        segments=record.segments,
-        words=record.words,
-        transcript=record.request.text if complete else None,
-        timing_source=record.timing_source,
+        segments=record.segments if transcribed else [],
+        words=record.words if transcribed else [],
+        transcript=record.request.text if transcribed else None,
+        timing_source=record.timing_source if transcribed else None,
+        engine=record.request.engine,
+        transcription_state=record.transcription_state,
+        transcription_engine=record.transcription_engine,
+        transcription_error=record.transcription_error,
     )
 
 
@@ -89,6 +96,10 @@ def create_app(
             return JSONResponse(_error(
                 "invalid_voice_reference",
                 "Enter a name (1–100 characters), a description up to 2,000 characters, and a reference ID or Fish Audio voice URL (https://fish.audio/app/m/<reference-id>/).",
+            ), status_code=422)
+        if request.url.path.startswith("/api/jobs/") and request.url.path.endswith("/transcript"):
+            return JSONResponse(_error(
+                "invalid_transcription_settings", "Choose WhisperX or Whisper for transcription.",
             ), status_code=422)
         text_error = (
             isinstance(error.body, dict)
@@ -151,6 +162,7 @@ def create_app(
                 "engine": "fish_audio",
                 "fish_voice": "b0204e37cbc94a16954c78697b844af2",
                 "timestamp_engine": "whisperx",
+                "auto_transcribe": False,
                 "language": "a",
                 "voice": "af_heart",
                 "preset": "neutral",
@@ -167,9 +179,12 @@ def create_app(
             openrouter_configured=bool(os.getenv("OPENROUTER_API_KEY", "").strip()),
         )
 
+    def job_response(record: JobRecord) -> JobResponse:
+        return _job_response(active_jobs.snapshot(record.id))
+
     @application.post("/api/jobs", response_model=JobResponse, status_code=status.HTTP_202_ACCEPTED)
     def create_job(request: GenerationRequest) -> JobResponse:
-        return _job_response(active_jobs.create(request))
+        return job_response(active_jobs.create(request))
 
     def lookup(job_id: str) -> JobRecord:
         try:
@@ -179,11 +194,19 @@ def create_app(
 
     @application.get("/api/jobs/{job_id}", response_model=JobResponse)
     def get_job(job_id: str) -> JobResponse:
-        return _job_response(lookup(job_id))
+        return job_response(lookup(job_id))
+
+    @application.post("/api/jobs/{job_id}/transcript", response_model=JobResponse, status_code=status.HTTP_202_ACCEPTED)
+    def transcribe_job(job_id: str, request: TranscriptionRequest) -> JobResponse | JSONResponse:
+        record = lookup(job_id)
+        try:
+            return job_response(active_jobs.transcribe(record.id, request.timestamp_engine))
+        except AudioNotReadyError as error:
+            return JSONResponse(_error("audio_not_ready", str(error)), status_code=409)
 
     @application.delete("/api/jobs/{job_id}", response_model=JobResponse)
     def cancel_job(job_id: str) -> JobResponse:
-        return _job_response(active_jobs.cancel(lookup(job_id).id))
+        return job_response(active_jobs.cancel(lookup(job_id).id))
 
     def result_file(job_id: str) -> tuple[JobRecord, Path]:
         record = lookup(job_id)

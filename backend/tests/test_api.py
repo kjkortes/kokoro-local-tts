@@ -78,7 +78,7 @@ def test_completed_generation_exposes_timestamped_transcript(tmp_path: Path) -> 
     client, jobs = make_client(tmp_path)
     created = client.post(
         "/api/jobs",
-        json={"text": "One. Two.", "language": "a", "primary_voice": "af_heart"},
+        json={"text": "One. Two.", "language": "a", "primary_voice": "af_heart", "auto_transcribe": True},
     ).json()
     deadline = time.time() + 2
     body = created
@@ -101,7 +101,7 @@ def test_completed_generation_preserves_the_full_transcript(tmp_path: Path) -> N
     original = "First paragraph.\n\nSecond paragraph."
     created = client.post(
         "/api/jobs",
-        json={"text": original, "language": "a", "primary_voice": "af_heart"},
+        json={"text": original, "language": "a", "primary_voice": "af_heart", "auto_transcribe": True},
     ).json()
     deadline = time.time() + 2
     body = created
@@ -123,6 +123,7 @@ def test_storyboard_generation_accepts_obsolete_comma_pause_ms(tmp_path: Path) -
             "language": "a",
             "primary_voice": "af_heart",
             "comma_pause_ms": 100,
+            "auto_transcribe": True,
         },
     )
 

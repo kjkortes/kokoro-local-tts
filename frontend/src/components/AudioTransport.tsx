@@ -2,7 +2,7 @@ import {useEffect, useRef, useState} from "react";
 
 import {writeClipboard} from "../clipboard";
 import {useAudioTransport} from "../hooks/useAudioTransport";
-import type {JobResponse} from "../types";
+import type {JobResponse, TimestampEngine} from "../types";
 
 
 function formatTime(seconds: number) {
@@ -60,7 +60,7 @@ function useWaveform(url: string | null) {
   return envelope;
 }
 
-export function AudioTransport({result}: {result: JobResponse}) {
+export function AudioTransport({result, onTranscribe, timestampEngine = "whisperx"}: {result: JobResponse; onTranscribe?: () => Promise<void>; timestampEngine?: TimestampEngine}) {
   const audioRef = useRef<HTMLAudioElement>(null);
   const canvasRef = useRef<HTMLCanvasElement>(null);
   const copyAttemptRef = useRef(0);
@@ -69,6 +69,10 @@ export function AudioTransport({result}: {result: JobResponse}) {
   const [copyCount, setCopyCount] = useState(0);
   const [transcriptView, setTranscriptView] = useState<"transcript" | "json">("transcript");
   const [timestampLevel, setTimestampLevel] = useState<"segments" | "words">("segments");
+  const [startingTranscript, setStartingTranscript] = useState(false);
+  const transcribing = startingTranscript || result.transcription_state === "queued" || result.transcription_state === "transcribing";
+  const transcriptEngine = transcribing ? result.transcription_engine ?? timestampEngine : result.engine === "kokoro" ? "kokoro" : timestampEngine;
+  const transcriptEngineLabel = transcriptEngine === "kokoro" ? "Kokoro's built-in timing" : transcriptEngine === "whisperx" ? "WhisperX" : "Whisper";
   const transport = useAudioTransport(audioRef, result.duration ?? 0);
   const envelope = useWaveform(result.audio_url);
   const segments = result.segments ?? [];
@@ -169,6 +173,17 @@ export function AudioTransport({result}: {result: JobResponse}) {
           <span>Download {format}</span><span aria-hidden="true">↓</span>
         </a>
       </section>
+      {onTranscribe && <section className="transcription-actions" aria-label="Transcription controls">
+        <div>
+          <h2>Transcript</h2>
+          <p>{transcribing ? `Transcribing with ${transcriptEngineLabel}. You can keep listening.` : `Create timestamps for this audio using ${transcriptEngineLabel}.`}</p>
+          {result.transcription_error && <p className="voice-library-error" role="alert">{result.transcription_error.action ?? result.transcription_error.message}</p>}
+        </div>
+        <button type="button" className="button secondary" disabled={transcribing} onClick={async () => {
+          setStartingTranscript(true);
+          try {await onTranscribe();} finally {setStartingTranscript(false);}
+        }}>{transcribing ? "Transcribing…" : result.transcription_state === "failed" ? "Retry transcription" : segments.length ? "Transcribe again" : "Transcribe audio"}</button>
+      </section>}
       {segments.length > 0 && (
         <section className="transcript-panel" aria-label="Timestamped transcript">
           <div className="transcript-heading">

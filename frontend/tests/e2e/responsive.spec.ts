@@ -45,7 +45,7 @@ for (const viewport of [{width: 375, height: 812}, {width: 1440, height: 900}]) 
     await expect(page.getByRole("heading", {name: "Give the words a voice."})).toBeVisible();
     const overflow = await page.evaluate(() => document.documentElement.scrollWidth > innerWidth);
     expect(overflow).toBe(false);
-    await expect(page.getByLabel("Script")).toBeVisible();
+    await expect(page.getByRole("textbox", {name: "Script", exact: true})).toBeVisible();
     await expect(page.getByRole("button", {name: "Generate speech"})).toBeDisabled();
   });
 
@@ -68,7 +68,7 @@ for (const viewport of [{width: 375, height: 812}, {width: 1440, height: 900}]) 
     await page.setViewportSize(viewport);
     await mockLocalApi(page);
     await page.goto("/");
-    await page.getByLabel("Script").fill("Keep the current narration.");
+    await page.getByRole("textbox", {name: "Script", exact: true}).fill("Keep the current narration.");
     await page.getByRole("link", {name: "Voices", exact: true}).click();
     await expect(page.getByRole("heading", {name: "Voice library"})).toBeVisible();
     await expect(page.getByText("Narration style 1", {exact: true})).toBeVisible();
@@ -76,7 +76,7 @@ for (const viewport of [{width: 375, height: 812}, {width: 1440, height: 900}]) 
     await expect(page.getByText("Voice 10", {exact: true})).toHaveCount(0);
     await page.getByRole("button", {name: "Next page"}).click();
     await page.getByRole("button", {name: "Use Voice 11"}).click();
-    await expect(page.getByLabel("Script")).toHaveValue("Keep the current narration.");
+    await expect(page.getByRole("textbox", {name: "Script", exact: true})).toHaveValue("Keep the current narration.");
     await expect(page.getByRole("combobox", {name: "Fish voice"})).toHaveValue("voice-11");
     await page.getByRole("link", {name: "Voices", exact: true}).click();
     await page.getByRole("button", {name: "Add voice", exact: true}).click();
@@ -87,6 +87,50 @@ for (const viewport of [{width: 375, height: 812}, {width: 1440, height: 900}]) 
     await expect(page.getByLabel("Reference ID", {exact: true})).toHaveValue("689b47ca83dd48dba90b160affb8a118");
     expect(await page.evaluate(() => document.documentElement.scrollWidth > innerWidth)).toBe(false);
   });
+
+  test(`audio is playable before manual transcription at ${viewport.width}px`, async ({page}) => {
+    await page.setViewportSize(viewport);
+    await mockLocalApi(page);
+    let generated = 0;
+    let finish = false;
+    const audioOnly = {
+      id: "manual", engine: "fish_audio", state: "complete", phase: "Audio ready", progress: 1, error: null,
+      audio_url: "/api/jobs/manual/audio", download_url: "/api/jobs/manual/download", filename: "preview.mp3", duration: 2.9,
+      segments: [], words: [], transcript: null, timing_source: null, transcription_state: "idle", transcription_error: null,
+    };
+    await page.route("**/api/jobs", (route) => {
+      generated += 1;
+      expect(route.request().postDataJSON().auto_transcribe).toBe(false);
+      return route.fulfill({status: 202, json: audioOnly});
+    });
+    await page.route("**/api/jobs/manual/audio", (route) => route.fulfill({path: "public/voice-samples/af_heart.mp3", contentType: "audio/mpeg"}));
+    await page.route("**/api/jobs/manual/transcript", (route) => {
+      expect(route.request().postDataJSON()).toEqual({timestamp_engine: "whisperx"});
+      return route.fulfill({status: 202, json: {...audioOnly, transcription_state: "queued", transcription_engine: "whisperx"}});
+    });
+    await page.route("**/api/jobs/manual", (route) => route.fulfill({json: {
+      ...audioOnly, transcription_state: finish ? "complete" : "transcribing", transcription_engine: "whisperx",
+      timing_source: finish ? "whisperx" : null,
+      segments: finish ? [{text: "Hello, this is a quick preview of my voice.", start: .3, end: 2.8}] : [],
+    }}));
+    await page.goto("/");
+    await page.getByRole("radio", {name: "Fish Audio S2.1 Pro Free — OpenRouter"}).check();
+    await expect(page.getByRole("checkbox", {name: "Automatically transcribe generated audio"})).not.toBeChecked();
+    await page.getByRole("textbox", {name: "Script", exact: true}).fill("Hello, this is a quick preview of my voice.");
+    await page.getByRole("button", {name: "Generate speech"}).click();
+    await page.getByRole("button", {name: "Play", exact: true}).click();
+    await expect(page.getByRole("button", {name: "Pause", exact: true})).toBeVisible();
+    await expect(page.getByRole("region", {name: "Timestamped transcript"})).toHaveCount(0);
+    const audio = await page.getByRole("region", {name: "Generated audio"}).locator("audio").elementHandle();
+    await page.getByRole("button", {name: "Transcribe audio", exact: true}).click();
+    await expect(page.getByRole("button", {name: "Transcribing…"})).toBeDisabled();
+    await expect(page.getByRole("link", {name: "Download MP3"})).toBeVisible();
+    finish = true;
+    await expect(page.getByRole("region", {name: "Timestamped transcript"})).toBeVisible();
+    expect(await audio!.evaluate((element) => element.isConnected)).toBe(true);
+    expect(generated).toBe(1);
+    expect(await page.evaluate(() => document.documentElement.scrollWidth > innerWidth)).toBe(false);
+  });
 }
 
 test("mobile controls follow the script-to-output task order", async ({page}) => {
@@ -94,8 +138,8 @@ test("mobile controls follow the script-to-output task order", async ({page}) =>
   await mockLocalApi(page);
   await page.goto("/");
   const labels = await page.locator("h1, h2").allTextContents();
-  expect(labels).toEqual(["Give the words a voice.", "TTS Engine", "Voice", "Expression", "Output"]);
-  await page.getByLabel("Script").fill("Kokoro is private and local.");
+  expect(labels).toEqual(["Give the words a voice.", "TTS Engine", "Voice", "Expression", "Output", "Transcript"]);
+  await page.getByRole("textbox", {name: "Script", exact: true}).fill("Kokoro is private and local.");
   await expect(page.getByRole("button", {name: "Generate speech"})).toBeEnabled();
 });
 

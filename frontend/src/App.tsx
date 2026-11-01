@@ -12,6 +12,7 @@ import {GenerateBar} from "./components/GenerateBar";
 import {OutputControls} from "./components/OutputControls";
 import {ScriptEditor} from "./components/ScriptEditor";
 import {VoiceControls} from "./components/VoiceControls";
+import {TranscriptionControls} from "./components/TranscriptionControls";
 import {useGeneration} from "./hooks/useGeneration";
 import type {AppConfig, ExpressionPreset, ExpressionValues, FishDeliveryStyle, FishVoiceReference, Gender, OutputFormat, StatusResponse, TimestampEngine, TtsEngine} from "./types";
 
@@ -43,6 +44,7 @@ export function App() {
   const [fishVoice, setFishVoice] = useState("b0204e37cbc94a16954c78697b844af2");
   const [fishStyle, setFishStyle] = useState<FishDeliveryStyle>("natural");
   const [timestampEngine, setTimestampEngine] = useState<TimestampEngine>("whisperx");
+  const [autoTranscribe, setAutoTranscribe] = useState(false);
   const [fishCustomStyle, setFishCustomStyle] = useState("");
   const [openRouterApiKey, setOpenRouterApiKey] = useState("");
   const generation = useGeneration();
@@ -68,6 +70,7 @@ export function App() {
         setEngine(nextConfig.defaults.engine);
         setFishVoice(nextConfig.defaults.fish_voice);
         setTimestampEngine(nextConfig.defaults.timestamp_engine ?? "whisperx");
+        setAutoTranscribe(nextConfig.defaults.auto_transcribe ?? false);
         setLanguage(nextConfig.defaults.language);
         setPrimary(nextConfig.defaults.voice);
         setFormat(nextConfig.defaults.format);
@@ -135,6 +138,7 @@ export function App() {
         fish_voice: fishVoice.trim() || undefined,
         fish_style: fishStyle,
         timestamp_engine: timestampEngine,
+        auto_transcribe: autoTranscribe,
         fish_custom_style: fishStyle === "custom" ? fishCustomStyle.trim() : undefined,
         openrouter_api_key: openRouterApiKey.trim() || undefined,
         output_format: "mp3",
@@ -143,6 +147,7 @@ export function App() {
     }
     generation.generate({
       engine: "kokoro",
+      auto_transcribe: autoTranscribe,
       text: speechText,
       segments: storyboardSegments ?? undefined,
       language,
@@ -206,8 +211,6 @@ export function App() {
               <FishAudioControls
                 voice={fishVoice}
                 style={fishStyle}
-                timestampEngine={timestampEngine}
-                onTimestampEngine={setTimestampEngine}
                 customStyle={fishCustomStyle}
                 apiKey={openRouterApiKey}
                 environmentKeyConfigured={Boolean(config.openrouter_configured)}
@@ -218,6 +221,8 @@ export function App() {
                 libraryRevision={libraryRevision}
               />
             )}
+            <TranscriptionControls engine={engine} automatic={autoTranscribe} timestampEngine={timestampEngine}
+              onAutomatic={setAutoTranscribe} onTimestampEngine={setTimestampEngine} />
           </aside>
         </div>
         <GenerateBar
@@ -230,7 +235,7 @@ export function App() {
           onGenerate={generate}
         />
         {generation.job?.state === "complete" ? (
-          <AudioTransport result={generation.job} />
+          <AudioTransport result={generation.job} timestampEngine={timestampEngine} onTranscribe={() => generation.transcribe(timestampEngine)} />
         ) : (
           <div className="transport-placeholder" aria-hidden="true"><span>Audio transport appears here after generation</span><i /></div>
         )}

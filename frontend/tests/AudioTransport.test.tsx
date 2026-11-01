@@ -31,6 +31,29 @@ const result: JobResponse = {
   ],
 };
 
+it("offers manual transcription while keeping audio playable throughout transcription", async () => {
+  const user = userEvent.setup();
+  const transcribe = vi.fn().mockResolvedValue(undefined);
+  const play = vi.spyOn(HTMLMediaElement.prototype, "play").mockResolvedValue();
+  vi.stubGlobal("fetch", vi.fn(async () => new Response(new ArrayBuffer(8))));
+  const audioOnly = {...result, segments: [], words: [], transcript: null, transcription_state: "idle" as const};
+  const {container, rerender} = render(<AudioTransport result={audioOnly} onTranscribe={transcribe} />);
+  expect(screen.queryByRole("region", {name: "Timestamped transcript"})).not.toBeInTheDocument();
+  await user.click(screen.getByRole("button", {name: "Play"}));
+  const audio = container.querySelector("audio")!;
+  audio.currentTime = 1.2;
+  await user.click(screen.getByRole("button", {name: "Transcribe audio"}));
+  expect(transcribe).toHaveBeenCalledOnce();
+  rerender(<AudioTransport result={{...audioOnly, transcription_state: "transcribing"}} onTranscribe={transcribe} />);
+  expect(screen.getByRole("button", {name: "Transcribing…"})).toBeDisabled();
+  expect(screen.getByRole("button", {name: "Pause"})).toBeEnabled();
+  rerender(<AudioTransport result={{...result, transcription_state: "complete"}} onTranscribe={transcribe} />);
+  expect(container.querySelector("audio")).toBe(audio);
+  expect(audio.currentTime).toBe(1.2);
+  expect(play).toHaveBeenCalledOnce();
+  expect(screen.getByRole("region", {name: "Timestamped transcript"})).toBeVisible();
+});
+
 it("keeps legacy completed jobs playable when transcript fields are absent", () => {
   vi.stubGlobal("fetch", vi.fn(async () => new Response(new ArrayBuffer(8))));
   const {segments: _segments, transcript: _transcript, words: _words, ...legacyResult} = result;

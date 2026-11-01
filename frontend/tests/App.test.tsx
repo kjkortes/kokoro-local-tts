@@ -328,6 +328,7 @@ it("uses the configured Fish engine and voice defaults and submits them", async 
   await screen.findByRole("option", {name: "Original Fish voice"});
   expect(screen.getByLabelText("Fish voice")).toHaveValue("original");
   expect(screen.getByLabelText("Timestamp engine")).toHaveValue("whisperx");
+  expect(screen.getByRole("checkbox", {name: "Automatically transcribe generated audio"})).not.toBeChecked();
 
   await user.selectOptions(screen.getByLabelText("Delivery Style"), "documentary");
   await user.type(screen.getByLabelText("OpenRouter API Key"), "ui-secret-key");
@@ -342,6 +343,7 @@ it("uses the configured Fish engine and voice defaults and submits them", async 
     fish_voice: "b0204e37cbc94a16954c78697b844af2",
     fish_style: "documentary",
     timestamp_engine: "whisperx",
+    auto_transcribe: false,
     openrouter_api_key: "ui-secret-key",
     output_format: "mp3",
   });
@@ -356,6 +358,7 @@ it("submits the selected saved reference and omits it for provider default", asy
   await screen.findByRole("option", {name: "Documentary narrator"});
   await user.selectOptions(screen.getByLabelText("Fish voice"), "saved-two");
   await user.selectOptions(screen.getByLabelText("Timestamp engine"), "whisper");
+  await user.click(screen.getByRole("checkbox", {name: "Automatically transcribe generated audio"}));
   await user.click(screen.getByRole("radio", {name: "Kokoro Local"}));
   await user.click(screen.getByRole("radio", {name: "Fish Audio S2.1 Pro Free — OpenRouter"}));
   await screen.findByRole("option", {name: "Documentary narrator"});
@@ -366,6 +369,7 @@ it("submits the selected saved reference and omits it for provider default", asy
   let submitted = calls.filter(({url, init}) => url === "/api/jobs" && init?.method === "POST");
   expect(JSON.parse(String(submitted[0].init?.body)).fish_voice).toBe("saved-documentary-ref");
   expect(JSON.parse(String(submitted[0].init?.body)).timestamp_engine).toBe("whisper");
+  expect(JSON.parse(String(submitted[0].init?.body)).auto_transcribe).toBe(true);
 
   await user.selectOptions(screen.getByLabelText("Fish voice"), "provider");
   await user.click(screen.getByRole("button", {name: "Generate speech"}));

@@ -2,6 +2,7 @@ export type Gender = "female" | "male";
 export type OutputFormat = "wav" | "mp3" | "flac" | "ogg";
 export type TtsEngine = "kokoro" | "fish_audio";
 export type TimestampEngine = "whisperx" | "whisper";
+export type TranscriptionState = "idle" | "queued" | "transcribing" | "complete" | "failed";
 export type FishDeliveryStyle =
   | "natural"
   | "documentary"
@@ -78,6 +79,7 @@ export interface AppConfig {
     engine: TtsEngine;
     fish_voice: string;
     timestamp_engine?: TimestampEngine;
+    auto_transcribe?: boolean;
     language: string;
     voice: string;
     preset: string;
@@ -97,6 +99,7 @@ export interface StatusResponse {
 interface GenerationRequestBase {
   text: string;
   segments?: string[];
+  auto_transcribe?: boolean;
 }
 
 export interface KokoroGenerationRequest extends GenerationRequestBase {
@@ -151,4 +154,8 @@ export interface JobResponse {
   words?: TranscriptWord[];
   transcript: string | null;
   timing_source?: "kokoro" | "whisper" | "whisperx" | null;
+  engine?: TtsEngine;
+  transcription_state?: TranscriptionState;
+  transcription_engine?: "kokoro" | TimestampEngine | null;
+  transcription_error?: {code: string; message: string; action?: string} | null;
 }

@@ -220,6 +220,10 @@ summary span { color: var(--muted); font-weight: 400; }
 .download-button:hover { border-color: var(--mint); color: var(--mint); }
 .transcript-panel { border: 1px solid var(--ink); border-top: 0; background: var(--surface); }
 .transcript-heading { min-height: 72px; display: flex; align-items: center; gap: 14px; padding: 14px 28px; border-bottom: 1px solid var(--line-dark); }
+.transcription-switch { margin: 0 0 18px; padding: 0; border: 0; }
+.transcription-actions { display: flex; flex-wrap: wrap; align-items: center; justify-content: space-between; gap: 16px; padding: 22px 28px; border: 1px solid var(--line-dark); border-top: 0; background: var(--surface); }
+.transcription-actions p { max-width: 70ch; margin: 8px 0 0; color: var(--muted); font-size: .8rem; line-height: 1.5; }
+.transcription-actions .voice-library-error { color: #a52e23; }
 .transcript-heading h2 { margin-right: auto; }
 .timing-source { color: var(--muted); font-family: var(--mono); font-size: .62rem; white-space: nowrap; }
 .transcript-view-switch { display: grid; grid-template-columns: 1fr 1fr; padding: 3px; border: 1px solid var(--line-dark); border-radius: 10px; background: #eef0ed; }
