@@ -5,6 +5,7 @@ import type {GenerationRequest, JobResponse} from "../src/types";
 
 
 const request: GenerationRequest = {
+  engine: "kokoro",
   text: "Hello from Kokoro.",
   language: "a",
   primary_voice: "af_heart",

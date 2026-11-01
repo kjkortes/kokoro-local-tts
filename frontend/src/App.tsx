@@ -41,7 +41,7 @@ export function App() {
   const [custom, setCustom] = useState(false);
   const [format, setFormat] = useState<OutputFormat>("wav");
   const [normalize, setNormalize] = useState(true);
-  const [fishVoice, setFishVoice] = useState("b0204e37cbc94a16954c78697b844af2");
+  const [fishVoice, setFishVoice] = useState("");
   const [fishStyle, setFishStyle] = useState<FishDeliveryStyle>("natural");
   const [timestampEngine, setTimestampEngine] = useState<TimestampEngine>("whisperx");
   const [autoTranscribe, setAutoTranscribe] = useState(false);
@@ -135,7 +135,7 @@ export function App() {
         engine: "fish_audio",
         text: speechText,
         segments: storyboardSegments ?? undefined,
-        fish_voice: fishVoice.trim() || undefined,
+        fish_voice: fishVoice.trim(),
         fish_style: fishStyle,
         timestamp_engine: timestampEngine,
         auto_transcribe: autoTranscribe,

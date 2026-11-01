@@ -1,8 +1,8 @@
 # Kokoro Local TTS
 
-A web workbench for turning scripts into speech. Fish Audio S2.1 Pro Free is the default engine through OpenRouter, using voice reference `b0204e37cbc94a16954c78697b844af2`. Kokoro 82M remains available as a private, offline engine with all 54 Kokoro v1.0 voices, nine language/accent groups, expression presets, voice blending, timestamped transcripts, a waveform player, and WAV/MP3/FLAC/OGG downloads.
+A web workbench and reusable TTS microservice for turning scripts into speech, including narration for OpenMontage. Fish Audio S2.1 Pro Free is the default engine through OpenRouter, using configurable voice reference `b0204e37cbc94a16954c78697b844af2`. Kokoro 82M remains available when explicitly selected as a private, offline engine with all 54 Kokoro v1.0 voices, nine language/accent groups, expression presets, voice blending, timestamped transcripts, a waveform player, and WAV/MP3/FLAC/OGG downloads.
 
-In Kokoro mode, no script text is sent to a cloud API. The first launch downloads Kokoro's open model files from Hugging Face; later launches reuse the local cache and can work offline. Fish Audio mode sends the submitted script and optional voice reference ID to OpenRouter for synthesis; the interface marks this mode clearly.
+In Kokoro mode, no script text is sent to a cloud API. The first Kokoro request downloads its open model files from Hugging Face; later requests reuse the local cache and can work offline. Fish Audio mode sends the submitted script and optional voice reference ID to OpenRouter for synthesis; the interface marks this mode clearly.
 
 ## Start on Ubuntu or Debian
 
@@ -21,16 +21,21 @@ Then run:
 ./run.sh
 ```
 
-The launcher prints two addresses:
+The launcher listens on localhost by default:
 
 ```text
 On this computer       → http://127.0.0.1:8000
-On your home network   → http://192.168.x.x:8000
 ```
 
-Open the home-network address from a phone, tablet, or another computer connected to the same Wi-Fi or Ethernet network. The app listens on all network interfaces by default.
+For access from another device on your home network, explicitly enable LAN access:
 
-There is no sign-in screen. Anyone who can reach the app can submit scripts, use this machine's CPU, and access generated audio. Only run it on a home network you trust; do not expose port 8000 through your router to the public internet.
+```bash
+KOKORO_HOST=0.0.0.0 ./run.sh
+```
+
+The launcher then also prints a home-network address such as `http://192.168.x.x:8000`. Open it from a device connected to the same Wi-Fi or Ethernet network.
+
+There is no authentication. Anyone who can reach the app can submit scripts using your server's OpenRouter key and quota, use this machine's CPU, change the shared voice library, and access generated audio by job ID. Prefer localhost for integrations on the same computer. Enable LAN access only on a trusted network; do not expose port 8000 through your router to the public internet. Remote deployments need an authenticated reverse proxy, TLS, and access restrictions.
 
 To choose another port:
 
@@ -51,7 +56,7 @@ For an instance started on another port, include that port when stopping it:
 KOKORO_PORT=8080 ./run.sh --stop
 ```
 
-To restore localhost-only access for a session:
+To explicitly select localhost-only access for a session:
 
 ```bash
 KOKORO_HOST=127.0.0.1 ./run.sh
@@ -63,7 +68,7 @@ If Ubuntu's firewall blocks another device, allow the selected port on the local
 sudo ufw allow 8000/tcp
 ```
 
-The first start can take several minutes while Kokoro downloads and loads. The header reports `Loading model`, `Model ready`, or an actionable setup error.
+Startup does not preload Kokoro. The header initially reports `Model on demand`; Kokoro downloads and loads only when you submit an explicitly selected Kokoro request. That first local request can take several minutes.
 
 ## Controls
 
@@ -106,7 +111,7 @@ There is no fallback to `fish-audio/s2.1-pro` or any other paid model. If the fr
    ./run.sh
    ```
 
-   The launcher reads `OPENROUTER_API_KEY` from `.env` without treating the file as a shell script. An already exported environment value takes precedence.
+   The launcher reads `OPENROUTER_API_KEY` and `FISH_AUDIO_DEFAULT_VOICE` from `.env` without treating the file as a shell script. Already exported non-empty environment values take precedence. When starting Uvicorn directly, export these variables yourself; only the launcher reads `.env`.
 
    If no environment key is configured, you can paste a key into the password-style field in Fish mode. That key is kept only in the current browser session. `OPENROUTER_API_KEY` takes precedence and disables the browser field; environment configuration is preferred, especially when accessing the app over a local network.
 
@@ -116,6 +121,8 @@ There is no fallback to `fish-audio/s2.1-pro` or any other paid model. If the fr
 6. Generate, play, and download the returned MP3. Audio is ready without waiting for transcription. Choose **Transcribe audio** when you want timestamps, or check **Automatically transcribe generated audio** before generating. The timestamp panel lets you switch between segment and word timing, select **JSON**, and download the timescript.
 
 The free model is intended for testing and lower-volume use and is subject to OpenRouter's free-model rate limits and availability. Fish mode uses one request for the complete narration rather than one request per sentence. Kokoro does not require this key and remains fully functional offline.
+
+Set `FISH_AUDIO_DEFAULT_VOICE` in the server environment or `.env` to change the voice used by the UI, `/api/jobs`, and `/v1/audio/speech` when the caller omits a voice. It initially defaults to `b0204e37cbc94a16954c78697b844af2`. An explicit empty voice (`"voice": ""` for speech, `"fish_voice": ""` for jobs) selects the provider default; `null` uses the configured server voice. Changing this setting does not edit or delete your saved voice library.
 
 Open **Voices** or **Manage all voices** to browse the paginated library, read descriptions, edit or delete any voice, or choose **Use voice** to return to the studio with that voice selected. Your current script stays in place while you manage voices.
 
@@ -137,7 +144,85 @@ To trade more processing time and memory for a larger Whisper model, set `KOKORO
 KOKORO_WHISPER_MODEL=medium ./run.sh
 ```
 
-An empty configuration template is included at `.env.example`. The real `.env` file is ignored by Git.
+A configuration template is included at `.env.example`. The real `.env` file is ignored by Git.
+
+## Microservice API / OpenMontage integration
+
+Start the server with `OPENROUTER_API_KEY` configured as above. Applications on the same computer can call `http://127.0.0.1:8000`; they do not need an OpenRouter account or API key. Use `/docs` for the API schema. If the caller runs in a container or on another machine, `127.0.0.1` refers to that caller: configure a reachable server address and restrict network access accordingly.
+
+### Synchronous MP3 speech
+
+`POST /v1/audio/speech` returns binary MP3 with `Content-Type: audio/mpeg`. It uses the same Fish synthesis client and delivery preparation as async jobs, including the natural delivery instruction. Existing Fish bracket instructions in `input` are preserved.
+
+| JSON field | Behavior |
+| --- | --- |
+| `input` | Required non-blank narration, up to 5,000 characters. |
+| `voice` | Optional Fish reference ID, up to 256 characters; defaults to `FISH_AUDIO_DEFAULT_VOICE`. |
+| `model` | Optional; only `fish-audio/s2.1-pro-free:free` is accepted. |
+| `response_format` | Optional; only `mp3` is accepted. |
+
+The endpoint performs no transcription and saves no job or audio file on the server. Other models, formats, and unsupported fields are rejected with HTTP 422. Use the async API for longer scripts (up to 100,000 characters), Kokoro, or audio plus transcripts.
+
+Generate narration with server defaults:
+
+```bash
+curl --fail-with-body --max-time 130 \
+  http://127.0.0.1:8000/v1/audio/speech \
+  -H 'Content-Type: application/json' \
+  -d '{"input":"Welcome to this OpenMontage video."}' \
+  --output narration.mp3
+```
+
+Node.js 20+ using native `fetch` (save as `speech.mjs`, then run `node speech.mjs`):
+
+```js
+import {writeFile} from 'node:fs/promises';
+
+const baseUrl = process.env.TTS_BASE_URL ?? 'http://127.0.0.1:8000';
+const response = await fetch(`${baseUrl}/v1/audio/speech`, {
+  method: 'POST',
+  headers: {'Content-Type': 'application/json'},
+  body: JSON.stringify({
+    input: 'Welcome to this OpenMontage video.',
+    // Omit voice to use the server configuration.
+    model: 'fish-audio/s2.1-pro-free:free',
+    response_format: 'mp3',
+  }),
+  signal: AbortSignal.timeout(130_000),
+});
+if (!response.ok) throw new Error(`TTS ${response.status}: ${await response.text()}`);
+await writeFile('narration.mp3', Buffer.from(await response.arrayBuffer()));
+```
+
+The upstream connection/read timeout is 120 seconds. Client or reverse proxy timeouts should allow slightly longer. Errors use `{"error":{"code":"...","message":"...","action":null}}`: HTTP 429 for free-model rate limits, 504 for upstream timeouts, 503 for missing server configuration or connection failures, and 502 for other provider failures or invalid audio responses. There are no automatic retries, paid-model fallbacks, or engine switches. On a timeout, a provider may already have processed the request; retry deliberately. Aborting a caller's connection does not guarantee cancellation of upstream synthesis.
+
+### Async audio and WhisperX timestamps
+
+Keep using `/api/jobs` for narration plus word and segment timing. Omitting `engine` selects Fish Audio; omitting `fish_voice` selects the configured server voice. For example, create a job and poll it with curl (Python 3 is used only to read the returned ID):
+
+```bash
+JOB_ID=$(curl --fail-with-body --silent --show-error \
+  http://127.0.0.1:8000/api/jobs \
+  -H 'Content-Type: application/json' \
+  -d '{"text":"Welcome to this OpenMontage video.","auto_transcribe":true,"timestamp_engine":"whisperx"}' \
+  | python3 -c 'import json,sys; print(json.load(sys.stdin)["id"])')
+
+curl --fail-with-body "http://127.0.0.1:8000/api/jobs/$JOB_ID"
+# Repeat the GET until state is complete and transcription_state is complete.
+curl --fail-with-body "http://127.0.0.1:8000/api/jobs/$JOB_ID/download" --output narration.mp3
+curl --fail-with-body "http://127.0.0.1:8000/api/jobs/$JOB_ID" --output narration-job.json
+```
+
+The final job JSON includes `words` and `segments` with `start`/`end` times in seconds, plus `timing_source: "whisperx"`. Check `state: "failed"` and `error` while polling. Audio becomes available at `state: "complete"`; transcription has its own state and `transcription_error`, so a timestamp failure does not remove the MP3. Jobs live in memory and are lost on server restart; generated files are pruned after 24 hours at startup.
+
+For audio first, omit `auto_transcribe` (it defaults to `false`), then request alignment explicitly:
+
+```bash
+curl --fail-with-body "http://127.0.0.1:8000/api/jobs/$JOB_ID/transcript" \
+  -H 'Content-Type: application/json' -d '{"timestamp_engine":"whisperx"}'
+```
+
+Kokoro remains available through `POST /api/jobs` with `{"engine":"kokoro","text":"Offline narration.","output_format":"mp3"}`. It is never selected automatically after a Fish error. Existing clients that relied on omitted `engine` meaning Kokoro must now send `"engine":"kokoro"` explicitly.
 
 ## Development
 

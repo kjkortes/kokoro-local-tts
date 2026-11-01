@@ -9,6 +9,8 @@ import sys
 import threading
 import time
 
+import pytest
+
 
 PROJECT_ROOT = Path(__file__).resolve().parents[2]
 RUN_SCRIPT = PROJECT_ROOT / "run.sh"
@@ -67,7 +69,8 @@ def _free_port() -> int:
         return int(probe.getsockname()[1])
 
 
-def test_launcher_exposes_lan_by_default_and_prints_phone_url(tmp_path: Path) -> None:
+@pytest.mark.parametrize("lan", [False, True])
+def test_launcher_defaults_to_localhost_and_allows_explicit_lan_access(tmp_path: Path, lan: bool) -> None:
     binaries = tmp_path / "bin"
     binaries.mkdir()
     _executable(binaries, "npm", 'echo "npm $*"')
@@ -79,6 +82,9 @@ def test_launcher_exposes_lan_by_default_and_prints_phone_url(tmp_path: Path) ->
         "PATH": f"{binaries}:{os.environ['PATH']}",
         "KOKORO_PORT": "8123",
     }
+    environment.pop("KOKORO_HOST", None)
+    if lan:
+        environment["KOKORO_HOST"] = "0.0.0.0"
 
     completed = subprocess.run(
         ["bash", str(RUN_SCRIPT)],
@@ -90,32 +96,41 @@ def test_launcher_exposes_lan_by_default_and_prints_phone_url(tmp_path: Path) ->
     )
 
     assert "On this computer  → http://127.0.0.1:8123" in completed.stdout
-    assert "On your home network → http://192.168.1.42:8123" in completed.stdout
-    assert "--host 0.0.0.0 --port 8123" in completed.stdout
-    assert "no sign-in" in completed.stdout.lower()
+    if lan:
+        assert "On your home network → http://192.168.1.42:8123" in completed.stdout
+        assert "--host 0.0.0.0 --port 8123" in completed.stdout
+        assert "no sign-in" in completed.stdout.lower()
+    else:
+        assert "On your home network" not in completed.stdout
+        assert "--host 127.0.0.1 --port 8123" in completed.stdout
 
 
-def test_launcher_loads_openrouter_key_from_env_file(tmp_path: Path) -> None:
+@pytest.mark.parametrize("exported", [False, True])
+def test_launcher_loads_fish_config_from_env_file_and_prefers_environment(tmp_path: Path, exported: bool) -> None:
     binaries = tmp_path / "bin"
     binaries.mkdir()
     env_file = tmp_path / ".env"
-    env_file.write_text("OPENROUTER_API_KEY=loaded-test-key\n", encoding="utf-8")
+    env_file.write_text("OPENROUTER_API_KEY=loaded-test-key\nFISH_AUDIO_DEFAULT_VOICE=voice-from-file\n", encoding="utf-8")
     _executable(binaries, "npm", "exit 0")
+    expected_key = "exported-test-key" if exported else "loaded-test-key"
+    expected_voice = "exported-voice" if exported else "voice-from-file"
     _executable(
         binaries,
         "uv",
-        '[[ "${OPENROUTER_API_KEY:-}" == "loaded-test-key" ]] && echo "OpenRouter key loaded"',
+        f'[[ "${{OPENROUTER_API_KEY:-}}" == "{expected_key}" && "${{FISH_AUDIO_DEFAULT_VOICE:-}}" == "{expected_voice}" ]] && echo "OpenRouter key and voice loaded"',
     )
     _executable(binaries, "ffmpeg", "exit 0")
     _executable(binaries, "hostname", 'echo "127.0.0.1"')
     environment = {
-        key: value for key, value in os.environ.items() if key != "OPENROUTER_API_KEY"
+        key: value for key, value in os.environ.items() if key not in {"OPENROUTER_API_KEY", "FISH_AUDIO_DEFAULT_VOICE"}
     }
     environment.update({
         "PATH": f"{binaries}:{os.environ['PATH']}",
         "KOKORO_PORT": str(_free_port()),
         "KOKORO_ENV_FILE": str(env_file),
     })
+    if exported:
+        environment.update(OPENROUTER_API_KEY="exported-test-key", FISH_AUDIO_DEFAULT_VOICE="exported-voice")
 
     completed = subprocess.run(
         ["bash", str(RUN_SCRIPT)],
@@ -126,7 +141,7 @@ def test_launcher_loads_openrouter_key_from_env_file(tmp_path: Path) -> None:
         check=True,
     )
 
-    assert "OpenRouter key loaded" in completed.stdout
+    assert "OpenRouter key and voice loaded" in completed.stdout
 
 
 def test_run_reports_when_kokoro_is_already_running() -> None:

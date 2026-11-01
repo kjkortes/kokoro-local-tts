@@ -38,6 +38,7 @@ def test_every_catalog_voice_has_a_playable_bundled_preview() -> None:
 def test_generation_request_rejects_incompatible_blend() -> None:
     try:
         GenerationRequest(
+        engine="kokoro",
             text="Hello",
             language="a",
             primary_voice="af_heart",

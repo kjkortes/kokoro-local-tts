@@ -31,7 +31,7 @@ def wait_for(manager: JobManager, job_id: str, state: JobState) -> None:
 
 def test_job_moves_from_queued_to_complete_and_reports_progress(tmp_path: Path) -> None:
     manager = JobManager(FakeEngine(), tmp_path, encoder=fake_encode)
-    record = manager.create(GenerationRequest(text="One. Two."))
+    record = manager.create(GenerationRequest(engine="kokoro", text="One. Two."))
     wait_for(manager, record.id, JobState.complete)
     finished = manager.get(record.id)
     assert finished.progress == 1.0
@@ -41,7 +41,7 @@ def test_job_moves_from_queued_to_complete_and_reports_progress(tmp_path: Path) 
 
 def test_completed_job_records_spoken_segment_timestamps(tmp_path: Path) -> None:
     manager = JobManager(FakeEngine(), tmp_path, encoder=fake_encode)
-    record = manager.create(GenerationRequest(text="One. Two."))
+    record = manager.create(GenerationRequest(engine="kokoro", text="One. Two."))
     wait_for(manager, record.id, JobState.complete)
 
     assert manager.get(record.id).segments == [
@@ -61,6 +61,7 @@ def test_completed_job_offsets_word_timestamps_by_chunks_pauses_and_tempo(tmp_pa
 
     manager = JobManager(AlignedEngine(), tmp_path, encoder=fake_encode)
     record = manager.create(GenerationRequest(
+        engine="kokoro",
         text="One. Two.",
         expression=ExpressionSettings(tempo=1.25, pause_scale=1.5),
     ))
@@ -83,6 +84,7 @@ def test_segment_timestamps_follow_chunk_lengths_pause_scaling_and_tempo(tmp_pat
 
     manager = JobManager(VaryingEngine(), tmp_path, encoder=fake_encode)
     record = manager.create(GenerationRequest(
+        engine="kokoro",
         text="One. Two.",
         expression=ExpressionSettings(tempo=1.25, pause_scale=1.5),
     ))
@@ -100,6 +102,7 @@ def test_segment_timestamps_follow_chunk_lengths_pause_scaling_and_tempo(tmp_pat
 def test_exact_pause_duration_overrides_chunk_defaults_and_expression_scale(tmp_path: Path) -> None:
     manager = JobManager(FakeEngine(), tmp_path, encoder=fake_encode)
     record = manager.create(GenerationRequest(
+        engine="kokoro",
         text="One. Two.",
         pause_ms=750,
         expression=ExpressionSettings(tempo=1.25, pause_scale=2),
@@ -115,6 +118,7 @@ def test_exact_pause_duration_overrides_chunk_defaults_and_expression_scale(tmp_
 def test_storyboard_rows_remain_exact_segments_when_a_row_uses_multiple_chunks(tmp_path: Path) -> None:
     manager = JobManager(FakeEngine(), tmp_path, encoder=fake_encode)
     record = manager.create(GenerationRequest(
+        engine="kokoro",
         text="One. Two.\n\nThird row, exactly!",
         segments=["One. Two.", "Third row, exactly!"],
     ))
@@ -142,6 +146,7 @@ def test_storyboard_rows_are_synthesized_as_one_continuous_narration(tmp_path: P
     manager = JobManager(engine, tmp_path, encoder=fake_encode)
     rows = ["The  thought begins,", "and\ncontinues naturally."]
     record = manager.create(GenerationRequest(
+        engine="kokoro",
         text="\n\n".join(rows),
         segments=rows,
     ))
@@ -159,6 +164,7 @@ def test_storyboard_rows_keep_monotonic_timestamps_inside_shared_audio(tmp_path:
 
     manager = JobManager(OneSecondEngine(), tmp_path, encoder=fake_encode)
     record = manager.create(GenerationRequest(
+        engine="kokoro",
         text="Short first row,\n\na considerably longer second row.",
         segments=["Short first row,", "a considerably longer second row."],
     ))
@@ -186,7 +192,7 @@ def test_long_storyboard_keeps_rows_separate_from_speech_chunks(tmp_path: Path) 
     rows = [row.strip() for row in rows]
     engine = RecordingEngine()
     manager = JobManager(engine, tmp_path, encoder=fake_encode)
-    record = manager.create(GenerationRequest(text="\n\n".join(rows), segments=rows))
+    record = manager.create(GenerationRequest(engine="kokoro", text="\n\n".join(rows), segments=rows))
     wait_for(manager, record.id, JobState.complete)
     finished = manager.get(record.id)
 
@@ -208,8 +214,8 @@ def test_cancelled_queued_job_does_not_expose_partial_audio(tmp_path: Path) -> N
             return super().synthesize(*args, **kwargs)
 
     manager = JobManager(SlowEngine(), tmp_path, encoder=fake_encode)
-    first = manager.create(GenerationRequest(text="Hold the worker."))
-    second = manager.create(GenerationRequest(text="Sentence. " * 100))
+    first = manager.create(GenerationRequest(engine="kokoro", text="Hold the worker."))
+    second = manager.create(GenerationRequest(engine="kokoro", text="Sentence. " * 100))
     manager.cancel(second.id)
     wait_for(manager, second.id, JobState.cancelled)
     assert manager.get(second.id).result_path is None
@@ -347,7 +353,7 @@ def test_kokoro_job_does_not_require_or_call_openrouter(tmp_path: Path, monkeypa
     manager = JobManager(
         FakeEngine(), tmp_path, encoder=fake_encode, fish_client=UnexpectedFishClient()
     )
-    record = manager.create(GenerationRequest(text="Offline speech."))
+    record = manager.create(GenerationRequest(engine="kokoro", text="Offline speech."))
     wait_for(manager, record.id, JobState.complete)
     assert manager.get(record.id).result_path.read_bytes() == b"local audio"
     manager.shutdown()

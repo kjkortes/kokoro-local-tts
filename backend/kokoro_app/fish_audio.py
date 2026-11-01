@@ -12,8 +12,10 @@ from urllib.request import Request, urlopen
 
 OPENROUTER_TTS_URL = "https://openrouter.ai/api/v1/audio/speech"
 FISH_AUDIO_MODEL = "fish-audio/s2.1-pro-free:free"
+DEFAULT_FISH_VOICE = "b0204e37cbc94a16954c78697b844af2"
 DEFAULT_RESPONSE_FORMAT = "mp3"
 DEFAULT_TIMEOUT_SECONDS = 120
+
 
 FISH_STYLE_INSTRUCTIONS = {
     "natural": "natural conversational speech",
@@ -25,6 +27,10 @@ FISH_STYLE_INSTRUCTIONS = {
     "dramatic": "dramatic storytelling with controlled intensity",
     "calm": "calm, warm and relaxed narration",
 }
+
+
+def default_fish_voice() -> str:
+    return os.getenv("FISH_AUDIO_DEFAULT_VOICE", DEFAULT_FISH_VOICE).strip()
 
 
 @dataclass(frozen=True)
@@ -41,10 +47,12 @@ class FishAudioError(RuntimeError):
         *,
         code: str = "fish_audio_failed",
         detail: str = "",
+        status_code: int = 502,
     ) -> None:
         super().__init__(message)
         self.code = code
         self.detail = detail
+        self.status_code = status_code
 
 
 def prepare_fish_input(
@@ -90,7 +98,10 @@ def _http_error(status: int, body: bytes, api_key: str) -> FishAudioError:
         message = messages.get(status, f"OpenRouter returned HTTP {status}.")
     if detail and status == 400:
         message = f"{message} {detail}"
-    return FishAudioError(message, code=f"openrouter_{status}", detail=detail)
+    return FishAudioError(
+        message, code=f"openrouter_{status}", detail=detail,
+        status_code={408: 504, 429: 429}.get(status, 502),
+    )
 
 
 Opener = Callable[[Request, float], Any]
@@ -118,6 +129,7 @@ class FishAudioOpenRouterClient:
             raise FishAudioError(
                 "An OpenRouter API key is required for Fish Audio.",
                 code="openrouter_key_required",
+                status_code=503,
             )
 
         payload = {
@@ -150,11 +162,18 @@ class FishAudioOpenRouterClient:
             raise FishAudioError(
                 "The Fish Audio request timed out.",
                 code="openrouter_timeout",
+                status_code=504,
             ) from None
         except (URLError, OSError) as error:
+            if isinstance(getattr(error, "reason", None), TimeoutError):
+                raise FishAudioError(
+                    "The Fish Audio request timed out.",
+                    code="openrouter_timeout", status_code=504,
+                ) from None
             raise FishAudioError(
                 "Could not connect to OpenRouter.",
                 code="openrouter_connection_failed",
+                status_code=503,
             ) from None
 
         if not 200 <= status < 300:

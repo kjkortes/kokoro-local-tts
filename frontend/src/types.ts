@@ -103,7 +103,7 @@ interface GenerationRequestBase {
 }
 
 export interface KokoroGenerationRequest extends GenerationRequestBase {
-  engine?: "kokoro";
+  engine: "kokoro";
   language: string;
   primary_voice: string;
   secondary_voice: string | null;
@@ -116,7 +116,7 @@ export interface KokoroGenerationRequest extends GenerationRequestBase {
 }
 
 export interface FishGenerationRequest extends GenerationRequestBase {
-  engine: "fish_audio";
+  engine?: "fish_audio";
   fish_voice?: string;
   fish_style: FishDeliveryStyle;
   timestamp_engine?: TimestampEngine;

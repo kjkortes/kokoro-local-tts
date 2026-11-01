@@ -135,7 +135,7 @@ def test_kokoro_transcript_can_be_revealed_manually_without_synthesizing_again(t
     manager = JobManager(engine, tmp_path, encoder=lambda pcm, path, *args: path.write_bytes(b"local audio"))
     client = TestClient(create_app(engine=engine, jobs=manager, preload_model=False))
     try:
-        record = manager.create(GenerationRequest(text="Hello."))
+        record = manager.create(GenerationRequest(engine="kokoro", text="Hello."))
         wait_until(lambda: record.state == JobState.complete)
         before = client.get(f"/api/jobs/{record.id}").json()
         assert before["transcript"] is None and before["segments"] == []

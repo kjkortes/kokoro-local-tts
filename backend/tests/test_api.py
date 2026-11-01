@@ -51,7 +51,7 @@ def test_blank_generation_is_actionable(tmp_path: Path) -> None:
     client, jobs = make_client(tmp_path)
     response = client.post(
         "/api/jobs",
-        json={"text": "   ", "language": "a", "primary_voice": "af_heart"},
+        json={"text": "   ", "engine": "kokoro", "language": "a", "primary_voice": "af_heart"},
     )
     assert response.status_code == 422
     assert response.json()["error"]["code"] == "invalid_text"
@@ -64,7 +64,7 @@ def test_generation_rejects_pause_duration_above_five_seconds(tmp_path: Path) ->
         "/api/jobs",
         json={
             "text": "One. Two.",
-            "language": "a",
+            "engine": "kokoro", "language": "a",
             "primary_voice": "af_heart",
             "pause_ms": 5001,
         },
@@ -78,7 +78,7 @@ def test_completed_generation_exposes_timestamped_transcript(tmp_path: Path) -> 
     client, jobs = make_client(tmp_path)
     created = client.post(
         "/api/jobs",
-        json={"text": "One. Two.", "language": "a", "primary_voice": "af_heart", "auto_transcribe": True},
+        json={"text": "One. Two.", "engine": "kokoro", "language": "a", "primary_voice": "af_heart", "auto_transcribe": True},
     ).json()
     deadline = time.time() + 2
     body = created
@@ -101,7 +101,7 @@ def test_completed_generation_preserves_the_full_transcript(tmp_path: Path) -> N
     original = "First paragraph.\n\nSecond paragraph."
     created = client.post(
         "/api/jobs",
-        json={"text": original, "language": "a", "primary_voice": "af_heart", "auto_transcribe": True},
+        json={"text": original, "engine": "kokoro", "language": "a", "primary_voice": "af_heart", "auto_transcribe": True},
     ).json()
     deadline = time.time() + 2
     body = created
@@ -120,7 +120,7 @@ def test_storyboard_generation_accepts_obsolete_comma_pause_ms(tmp_path: Path) -
         json={
             "text": "\n\n".join(rows),
             "segments": rows,
-            "language": "a",
+            "engine": "kokoro", "language": "a",
             "primary_voice": "af_heart",
             "comma_pause_ms": 100,
             "auto_transcribe": True,
@@ -146,7 +146,7 @@ def test_generation_rejects_storyboard_segments_that_do_not_match_text(tmp_path:
         json={
             "text": "Joined text is different.",
             "segments": ["First row.", "Second row."],
-            "language": "a",
+            "engine": "kokoro", "language": "a",
             "primary_voice": "af_heart",
         },
     )

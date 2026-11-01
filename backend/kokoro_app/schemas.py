@@ -5,6 +5,7 @@ from typing import Literal
 
 from pydantic import BaseModel, ConfigDict, Field, SecretStr, field_validator, model_validator
 
+from kokoro_app.fish_audio import FISH_AUDIO_MODEL, default_fish_voice
 from kokoro_app.fish_reference import normalize_fish_reference
 
 
@@ -113,7 +114,7 @@ class ExpressionSettings(BaseModel):
 
 
 class GenerationRequest(BaseModel):
-    engine: TtsEngine = TtsEngine.kokoro
+    engine: TtsEngine = TtsEngine.fish_audio
     text: str = Field(min_length=1, max_length=100_000)
     segments: list[str] | None = Field(default=None, min_length=1, max_length=10_000)
     language: str = "a"
@@ -125,7 +126,7 @@ class GenerationRequest(BaseModel):
     pause_ms: int | None = Field(default=None, ge=0, le=5000)
     output_format: OutputFormat = OutputFormat.wav
     normalize: bool = True
-    fish_voice: str | None = Field(default=None, max_length=256)
+    fish_voice: str | None = Field(default_factory=default_fish_voice, max_length=256)
     fish_style: FishDeliveryStyle = FishDeliveryStyle.natural
     timestamp_engine: TimestampEngine = TimestampEngine.whisperx
     auto_transcribe: bool = False
@@ -159,6 +160,22 @@ class GenerationRequest(BaseModel):
             if secondary.id == primary.id:
                 raise ValueError("Choose two different voices for a blend")
         return self
+
+
+class SpeechRequest(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    input: str = Field(min_length=1, max_length=5000)
+    voice: str | None = Field(default_factory=default_fish_voice, max_length=256)
+    model: Literal["fish-audio/s2.1-pro-free:free"] = FISH_AUDIO_MODEL
+    response_format: Literal["mp3"] = "mp3"
+
+    @field_validator("input")
+    @classmethod
+    def validate_input(cls, value: str) -> str:
+        if not value.strip():
+            raise ValueError("Input must contain something to speak")
+        return value
 
 
 class ExpressionPresetInfo(BaseModel):
@@ -215,7 +232,7 @@ class JobResponse(BaseModel):
     words: list[TranscriptWord] = Field(default_factory=list)
     transcript: str | None = None
     timing_source: Literal["kokoro", "whisper", "whisperx"] | None = None
-    engine: TtsEngine = TtsEngine.kokoro
+    engine: TtsEngine = TtsEngine.fish_audio
     transcription_state: TranscriptionState = TranscriptionState.idle
     transcription_engine: Literal["kokoro", "whisper", "whisperx"] | None = None
     transcription_error: dict[str, str] | None = None

@@ -351,7 +351,7 @@ it("uses the configured Fish engine and voice defaults and submits them", async 
   expect(screen.getByLabelText("OpenRouter API Key")).toHaveAttribute("type", "password");
 });
 
-it("submits the selected saved reference and omits it for provider default", async () => {
+it("submits the selected saved reference and an empty reference for provider default", async () => {
   const calls = stubApi({...config, defaults: {...config.defaults, engine: "fish_audio"}});
   const user = userEvent.setup();
   render(<App />);
@@ -375,7 +375,7 @@ it("submits the selected saved reference and omits it for provider default", asy
   await user.click(screen.getByRole("button", {name: "Generate speech"}));
   await waitFor(() => expect(calls.filter(({url, init}) => url === "/api/jobs" && init?.method === "POST")).toHaveLength(2));
   submitted = calls.filter(({url, init}) => url === "/api/jobs" && init?.method === "POST");
-  expect(JSON.parse(String(submitted[1].init?.body))).not.toHaveProperty("fish_voice");
+  expect(JSON.parse(String(submitted[1].init?.body)).fish_voice).toBe("");
 });
 
 it("opens the voice management page and uses a voice without losing the script", async () => {
@@ -391,6 +391,20 @@ it("opens the voice management page and uses a voice without losing the script",
   await waitFor(() => expect(screen.queryByRole("heading", {name: "Voice library"})).not.toBeInTheDocument());
   expect(screen.getByLabelText("Script")).toHaveValue("Keep this script while managing voices.");
   await waitFor(() => expect(screen.getByLabelText("Fish voice")).toHaveValue("saved-two"));
+});
+
+it("uses the configured Fish voice by default without a browser API key", async () => {
+  const calls = stubApi({...config, openrouter_configured: true, defaults: {...config.defaults, engine: "fish_audio", fish_voice: "configured-reference"}});
+  const user = userEvent.setup();
+  render(<App />);
+  await screen.findByLabelText("Script");
+  expect(screen.getByRole("radio", {name: "Fish Audio S2.1 Pro Free — OpenRouter"})).toBeChecked();
+  fireEvent.change(screen.getByLabelText("Script"), {target: {value: "Use the server voice."}});
+  await user.click(screen.getByRole("button", {name: "Generate speech"}));
+  await waitFor(() => expect(calls.some(({init}) => init?.method === "POST")).toBe(true));
+  const body = JSON.parse(String(calls.find(({init}) => init?.method === "POST")?.init?.body));
+  expect(body).toMatchObject({engine: "fish_audio", fish_voice: "configured-reference", output_format: "mp3"});
+  expect(body).not.toHaveProperty("openrouter_api_key");
 });
 
 it("honors a configured Kokoro default and does not add Fish delivery instructions", async () => {

@@ -7,13 +7,14 @@ from pathlib import Path
 
 from fastapi import FastAPI, HTTPException, Query, Request, status
 from fastapi.exceptions import RequestValidationError
-from fastapi.responses import FileResponse, JSONResponse
+from fastapi.responses import FileResponse, JSONResponse, Response
 from fastapi.staticfiles import StaticFiles
 
 from kokoro_app import __version__
 from kokoro_app.catalog import LANGUAGES, VOICES
 from kokoro_app.engine import KokoroEngine
 from kokoro_app.expressions import PRESETS
+from kokoro_app.fish_audio import FISH_AUDIO_MODEL, FishAudioError, default_fish_voice
 from kokoro_app.fish_voices import FishVoiceLibrary, VoiceLibraryError
 from kokoro_app.jobs import AudioNotReadyError, JobManager, JobNotFoundError, JobRecord
 from kokoro_app.schemas import (
@@ -25,6 +26,7 @@ from kokoro_app.schemas import (
     GenerationRequest,
     JobResponse,
     OutputFormat,
+    SpeechRequest,
     StatusResponse,
     TranscriptionRequest,
     TranscriptionState,
@@ -67,7 +69,7 @@ def create_app(
     engine: KokoroEngine | None = None,
     jobs: JobManager | None = None,
     *,
-    preload_model: bool = True,
+    preload_model: bool = False,
     frontend_dist: Path | None = None,
     fish_voice_db: Path | None = None,
 ) -> FastAPI:
@@ -90,6 +92,12 @@ def create_app(
 
     @application.exception_handler(RequestValidationError)
     async def validation_error(request: Request, error: RequestValidationError) -> JSONResponse:
+        if request.url.path == "/v1/audio/speech":
+            return JSONResponse(_error(
+                "invalid_request",
+                f"Provide input with 1–5,000 non-blank characters, an optional Fish voice (up to 256 characters), model '{FISH_AUDIO_MODEL}', and response_format 'mp3'.",
+                "Use /api/jobs for longer scripts or transcripts.",
+            ), status_code=422)
         if request.url.path.startswith("/api/fish-voices"):
             if any(item["loc"][0] == "query" for item in error.errors()):
                 return JSONResponse(_error("invalid_pagination", "Choose a page of 1 or higher and a page size between 1 and 100."), status_code=422)
@@ -160,7 +168,8 @@ def create_app(
             formats=list(OutputFormat),
             defaults={
                 "engine": "fish_audio",
-                "fish_voice": "b0204e37cbc94a16954c78697b844af2",
+                "fish_voice": default_fish_voice(),
+                "model": FISH_AUDIO_MODEL,
                 "timestamp_engine": "whisperx",
                 "auto_transcribe": False,
                 "language": "a",
@@ -185,6 +194,16 @@ def create_app(
     @application.post("/api/jobs", response_model=JobResponse, status_code=status.HTTP_202_ACCEPTED)
     def create_job(request: GenerationRequest) -> JobResponse:
         return job_response(active_jobs.create(request))
+
+    @application.post("/v1/audio/speech", response_class=Response, responses={200: {"content": {"audio/mpeg": {}}}})
+    def speech(request: SpeechRequest) -> Response:
+        try:
+            result = active_jobs.synthesize_fish(GenerationRequest(
+                text=request.input, fish_voice=request.voice, output_format=OutputFormat.mp3,
+            ))
+        except FishAudioError as error:
+            return JSONResponse(_error(error.code, str(error)), status_code=error.status_code)
+        return Response(result.audio, media_type="audio/mpeg")
 
     def lookup(job_id: str) -> JobRecord:
         try:
@@ -235,7 +254,7 @@ def create_app(
 
     @application.get("/{path:path}", include_in_schema=False)
     def spa_fallback(path: str):
-        if path.startswith("api/"):
+        if path.startswith(("api/", "v1/")):
             return JSONResponse(_error("not_found", "API route not found."), status_code=404)
         index = dist / "index.html"
         if index.is_file():

@@ -3,17 +3,21 @@ set -euo pipefail
 
 project_dir="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 port="${KOKORO_PORT:-8000}"
-host="${KOKORO_HOST:-0.0.0.0}"
+host="${KOKORO_HOST:-127.0.0.1}"
 
-load_openrouter_key() {
+load_fish_config() {
   local env_file="${KOKORO_ENV_FILE:-$project_dir/.env}"
-  local line value first_character last_character
-  if [[ -n "${OPENROUTER_API_KEY:-}" || ! -f "$env_file" ]]; then
+  local line name value first_character last_character
+  if [[ ! -f "$env_file" ]]; then
     return 0
   fi
   while IFS= read -r line || [[ -n "$line" ]]; do
-    if [[ "$line" =~ ^[[:space:]]*(export[[:space:]]+)?OPENROUTER_API_KEY[[:space:]]*=(.*)$ ]]; then
-      value="${BASH_REMATCH[2]}"
+    if [[ "$line" =~ ^[[:space:]]*(export[[:space:]]+)?(OPENROUTER_API_KEY|FISH_AUDIO_DEFAULT_VOICE)[[:space:]]*=(.*)$ ]]; then
+      name="${BASH_REMATCH[2]}"
+      value="${BASH_REMATCH[3]}"
+      if [[ -n "${!name:-}" ]]; then
+        continue
+      fi
       value="${value#"${value%%[![:space:]]*}"}"
       value="${value%"${value##*[![:space:]]}"}"
       first_character="${value:0:1}"
@@ -24,13 +28,12 @@ load_openrouter_key() {
       ) ]]; then
         value="${value:1:${#value}-2}"
       fi
-      export OPENROUTER_API_KEY="$value"
-      return 0
+      export "$name=$value"
     fi
   done < "$env_file"
 }
 
-load_openrouter_key
+load_fish_config
 
 require_commands() {
   local dependency
@@ -178,11 +181,13 @@ fi
 echo
 echo "Kokoro Local TTS"
 echo "On this computer  → http://127.0.0.1:$port"
-if [[ -n "$lan_ip" ]]; then
-  echo "On your home network → http://$lan_ip:$port"
-else
-  echo "Home network address unavailable. Run 'hostname -I' after connecting to Wi-Fi or Ethernet."
+if [[ "$host" != "127.0.0.1" && "$host" != "localhost" ]]; then
+  if [[ -n "$lan_ip" ]]; then
+    echo "On your home network → http://$lan_ip:$port"
+  else
+    echo "Home network address unavailable. Run 'hostname -I' after connecting to Wi-Fi or Ethernet."
+  fi
+  echo "LAN access has no sign-in. Only run this on a network you trust."
 fi
-echo "LAN access has no sign-in. Only run this on a network you trust."
 echo
 exec uv run uvicorn kokoro_app.app:app --app-dir backend --host "$host" --port "$port"

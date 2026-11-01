@@ -17,6 +17,8 @@ from kokoro_app.expressions import resolve_expression
 from kokoro_app.fish_audio import (
     FishAudioError,
     FishAudioOpenRouterClient,
+    FishAudioResult,
+    default_fish_voice,
     prepare_fish_input,
 )
 from kokoro_app.schemas import GenerationRequest, JobState, TimestampEngine, TranscriptionState, TtsEngine
@@ -423,23 +425,26 @@ class JobManager:
                     }
             self._set(record, JobState.failed, "Generation failed", record.progress)
 
-    def _run_fish(self, record: JobRecord) -> None:
-        self._set(record, JobState.synthesizing, "Generating with Fish Audio", 0.12)
+    def synthesize_fish(self, request: GenerationRequest) -> FishAudioResult:
         request_key = (
-            record.request.openrouter_api_key.get_secret_value()
-            if record.request.openrouter_api_key is not None
+            request.openrouter_api_key.get_secret_value()
+            if request.openrouter_api_key is not None
             else None
         )
         prepared_text = prepare_fish_input(
-            record.request.text,
-            record.request.fish_style.value,
-            record.request.fish_custom_style,
+            request.text,
+            request.fish_style.value,
+            request.fish_custom_style,
         )
-        result = self.fish_client.synthesize(
+        return self.fish_client.synthesize(
             prepared_text,
-            voice_id=record.request.fish_voice,
+            voice_id=request.fish_voice if request.fish_voice is not None else default_fish_voice(),
             api_key=request_key,
         )
+
+    def _run_fish(self, record: JobRecord) -> None:
+        self._set(record, JobState.synthesizing, "Generating with Fish Audio", 0.12)
+        result = self.synthesize_fish(record.request)
         if self._cancelled(record):
             return
         self._set(record, JobState.processing, "Saving Fish Audio MP3", 0.82)
